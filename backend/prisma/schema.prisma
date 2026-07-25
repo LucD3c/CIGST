@@ -1,0 +1,194 @@
+// Schema de datos de CIGST (CEMEVE). Convenciones aplicadas a todas las entidades
+// de negocio: id UUID, timestamps de auditoria (createdAt/updatedAt) y soft delete
+// (deletedAt) para no perder trazabilidad historica ante un borrado.
+// Excepcion deliberada: Session no lleva soft delete -> un token de sesion revocado
+// se elimina de verdad (hard delete), no tiene sentido conservar credenciales muertas.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  name         String
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  roleId       String    @map("role_id")
+  employeeId   String?   @unique @map("employee_id")
+  status       String    @default("Activo")
+  lastAccessAt DateTime? @map("last_access_at")
+  loginCount   Int       @default(0) @map("login_count")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  role     Role      @relation(fields: [roleId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  sessions        Session[]
+  ticketsCreated  Ticket[]        @relation("TicketCreatedBy")
+  ticketsAssigned Ticket[]        @relation("TicketTechnician")
+  logbookEntries  LogbookEntry[]
+
+  @@index([roleId])
+  @@index([employeeId])
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Employee {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  name         String
+  document     String?
+  email        String?
+  phone        String?
+  extension    String?
+  sector       String?
+  position     String?
+  status       String    @default("Activo")
+  workShift    String?   @map("work_shift")
+  schedule     String?
+  replacementId String?  @map("replacement_id")
+  notes        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  replacement Employee?  @relation("EmployeeReplacement", fields: [replacementId], references: [id], onDelete: SetNull)
+  replacementOf Employee[] @relation("EmployeeReplacement")
+
+  user                User?
+  equipment           Equipment[]
+  ticketsAsAffected   Ticket[]        @relation("TicketAffected")
+  ticketsAsRequester  Ticket[]        @relation("TicketRequester")
+  ticketsAsReplacement Ticket[]       @relation("TicketReplacement")
+
+  @@index([replacementId])
+  @@map("employees")
+}
+
+model Equipment {
+  id         String    @id @default(uuid())
+  code       String    @unique
+  type       String
+  brand      String?
+  model      String?
+  serial     String?
+  asset      String?
+  status     String    @default("Operativo")
+  employeeId String?   @map("employee_id")
+  location   String?
+  warranty   String?   @default("No registrada")
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  tickets        Ticket[]
+  logbookEntries LogbookEntry[]
+
+  @@index([employeeId])
+  @@map("equipment")
+}
+
+model Ticket {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  title         String
+  description   String?
+  employeeId    String    @map("employee_id")
+  requestedById String?   @map("requested_by_id")
+  replacementId String?   @map("replacement_id")
+  equipmentId   String?   @map("equipment_id")
+  location      String?
+  contact       String?
+  availability  String?
+  supportShift  String?   @map("support_shift")
+  category      String    @default("General")
+  impact        String    @default("Individual")
+  technicianId  String?   @map("technician_id")
+  status        String    @default("Nuevo")
+  priority      String    @default("Media")
+  solution      String?
+  timeSpent     String?   @map("time_spent")
+  createdById   String?   @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  employee    Employee   @relation("TicketAffected", fields: [employeeId], references: [id])
+  requestedBy Employee?  @relation("TicketRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  replacement Employee?  @relation("TicketReplacement", fields: [replacementId], references: [id], onDelete: SetNull)
+  equipment   Equipment? @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  technician  User?      @relation("TicketTechnician", fields: [technicianId], references: [id], onDelete: SetNull)
+  createdBy   User?      @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  logbookEntries LogbookEntry[]
+
+  @@index([employeeId])
+  @@index([requestedById])
+  @@index([replacementId])
+  @@index([equipmentId])
+  @@index([technicianId])
+  @@index([createdById])
+  @@index([status])
+  @@map("tickets")
+}
+
+model LogbookEntry {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  title             String
+  category          String
+  detail            String?
+  authorId          String    @map("author_id")
+  relatedTicketId   String?   @map("related_ticket_id")
+  relatedEquipmentId String?  @map("related_equipment_id")
+  occurredAt        DateTime  @default(now()) @map("occurred_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  author          User       @relation(fields: [authorId], references: [id])
+  relatedTicket   Ticket?    @relation(fields: [relatedTicketId], references: [id], onDelete: SetNull)
+  relatedEquipment Equipment? @relation(fields: [relatedEquipmentId], references: [id], onDelete: SetNull)
+
+  @@index([authorId])
+  @@index([relatedTicketId])
+  @@index([relatedEquipmentId])
+  @@map("logbook_entries")
+}
