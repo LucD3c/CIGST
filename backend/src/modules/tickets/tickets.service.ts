@@ -28,7 +28,7 @@ async function assertTechnicianExists(id: string | null | undefined) {
     where: { id, deletedAt: null, status: 'Activo', role: { name: { in: [ROLES.ADMIN, ROLES.TECH] } } },
     select: { id: true },
   });
-  if (!user) throw HttpError.badRequest('El tecnico asignado indicado no es valido.');
+  if (!user) throw HttpError.badRequest('El técnico asignado indicado no es válido.');
 }
 
 function isStaff(user: SessionUser) {
@@ -55,7 +55,7 @@ export async function getById(user: SessionUser, id: string) {
   const ticket = await repo.findById(id);
   if (!ticket) throw HttpError.notFound('Ticket no encontrado.');
   if (!isStaff(user) && ticket.employeeId !== user.employeeId) {
-    throw HttpError.forbidden('No podes ver un ticket que no es tuyo.');
+    throw HttpError.forbidden('No podés ver un ticket que no es tuyo.');
   }
   return ticket;
 }
@@ -90,7 +90,7 @@ export async function createByStaff(user: SessionUser, data: CreateTicketByStaff
 
 export async function createSelfService(user: SessionUser, data: CreateTicketSelfServiceInput) {
   if (!user.employeeId) {
-    throw HttpError.badRequest('Tu usuario no esta vinculado a una persona; pedile a Sistemas que lo asocie.');
+    throw HttpError.badRequest('Tu usuario no está vinculado a una persona; pedile a Sistemas que lo asocie.');
   }
   await assertOptionalEmployeeExists(data.replacementId, 'La persona de reemplazo');
   await assertEquipmentExists(data.equipmentId);

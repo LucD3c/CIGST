@@ -13,21 +13,21 @@ export function validate(schemas: Schemas) {
     if (schemas.body) {
       const result = schemas.body.safeParse(req.body);
       if (!result.success) {
-        return next(HttpError.badRequest('Datos invalidos en el cuerpo de la solicitud.', result.error.flatten()));
+        return next(HttpError.badRequest('Datos inválidos en el cuerpo de la solicitud.', result.error.flatten()));
       }
       req.body = result.data;
     }
     if (schemas.params) {
       const result = schemas.params.safeParse(req.params);
       if (!result.success) {
-        return next(HttpError.badRequest('Parametros invalidos.', result.error.flatten()));
+        return next(HttpError.badRequest('Parámetros inválidos.', result.error.flatten()));
       }
       req.params = result.data;
     }
     if (schemas.query) {
       const result = schemas.query.safeParse(req.query);
       if (!result.success) {
-        return next(HttpError.badRequest('Parametros de busqueda invalidos.', result.error.flatten()));
+        return next(HttpError.badRequest('Parámetros de búsqueda inválidos.', result.error.flatten()));
       }
       req.query = result.data;
     }

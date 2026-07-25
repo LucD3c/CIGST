@@ -21,7 +21,7 @@ export async function list() {
 
 export async function getById(id: string) {
   const entry = await repo.findById(id);
-  if (!entry) throw HttpError.notFound('Evento de bitacora no encontrado.');
+  if (!entry) throw HttpError.notFound('Evento de bitácora no encontrado.');
   return entry;
 }
 

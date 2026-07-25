@@ -24,13 +24,13 @@ export const create = asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   if (isStaff(user.role)) {
     const parsed = createTicketByStaffSchema.safeParse(req.body);
-    if (!parsed.success) throw HttpError.badRequest('Datos de ticket invalidos.', parsed.error.flatten());
+    if (!parsed.success) throw HttpError.badRequest('Datos de ticket inválidos.', parsed.error.flatten());
     const ticket = await service.createByStaff(user, parsed.data);
     return res.status(201).json({ ticket });
   }
 
   const parsed = createTicketSelfServiceSchema.safeParse(req.body);
-  if (!parsed.success) throw HttpError.badRequest('Datos de solicitud invalidos.', parsed.error.flatten());
+  if (!parsed.success) throw HttpError.badRequest('Datos de solicitud inválidos.', parsed.error.flatten());
   const ticket = await service.createSelfService(user, parsed.data);
   res.status(201).json({ ticket });
 });

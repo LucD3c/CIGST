@@ -29,8 +29,8 @@ export const ticketImpactValues = ['Individual', 'Sector completo', 'Atención a
 export const ticketContactValues = ['Interno telefónico', 'Teléfono móvil', 'Correo', 'Presencial'] as const;
 
 const ticketSharedFields = {
-  title: z.string().trim().min(1, 'El titulo es obligatorio.').max(200),
-  description: z.string().trim().min(1, 'La descripcion es obligatoria.').max(4000),
+  title: z.string().trim().min(1, 'El título es obligatorio.').max(200),
+  description: z.string().trim().min(1, 'La descripción es obligatoria.').max(4000),
   equipmentId: nullableUuid,
   replacementId: nullableUuid,
   location: optionalText(150),

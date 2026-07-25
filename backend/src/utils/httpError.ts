@@ -17,7 +17,7 @@ export class HttpError extends Error {
     return new HttpError(401, message);
   }
 
-  static forbidden(message = 'No autorizado para esta accion.') {
+  static forbidden(message = 'No autorizado para esta acción.') {
     return new HttpError(403, message);
   }
 

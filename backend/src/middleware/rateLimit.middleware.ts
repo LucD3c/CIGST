@@ -7,5 +7,5 @@ export const loginRateLimiter = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiados intentos de inicio de sesion. Espera unos minutos e intenta nuevamente.' },
+  message: { error: 'Demasiados intentos de inicio de sesión. Esperá unos minutos e intentá nuevamente.' },
 });
