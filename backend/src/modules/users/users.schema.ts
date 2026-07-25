@@ -15,8 +15,8 @@ export const createUserSchema = z
       .trim()
       .min(3, 'El usuario debe tener al menos 3 caracteres.')
       .max(50)
-      .regex(usernamePattern, 'El usuario solo admite letras, numeros, punto, guion y guion bajo.'),
-    password: z.string().min(8, 'La contrasena debe tener al menos 8 caracteres.').max(200),
+      .regex(usernamePattern, 'El usuario solo admite letras, números, punto, guion y guion bajo.'),
+    password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres.').max(200),
     role: z.enum(roleValues),
     employeeId: nullableUuid,
   })
@@ -30,7 +30,7 @@ export const updateUserSchema = z.object({
   role: z.enum(roleValues).optional(),
   employeeId: nullableUuid,
   status: z.enum(userStatusValues).optional(),
-  password: z.string().min(8, 'La contrasena debe tener al menos 8 caracteres.').max(200).optional(),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres.').max(200).optional(),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
