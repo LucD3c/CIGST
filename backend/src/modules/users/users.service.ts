@@ -24,6 +24,10 @@ export async function list() {
   return repo.findMany();
 }
 
+export async function listTechnicians() {
+  return repo.findTechnicians();
+}
+
 export async function getById(id: string) {
   const user = await repo.findById(id);
   if (!user) throw HttpError.notFound('Usuario no encontrado.');

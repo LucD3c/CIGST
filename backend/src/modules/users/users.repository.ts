@@ -17,6 +17,14 @@ const publicSelect = {
   employee: { select: { id: true, name: true } },
 } as const;
 
+export function findTechnicians() {
+  return prisma.user.findMany({
+    where: { ...activeFilter, status: 'Activo', role: { name: { in: ['Administrador', 'Técnico'] } } },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
 export function findMany() {
   return prisma.user.findMany({
     where: activeFilter,

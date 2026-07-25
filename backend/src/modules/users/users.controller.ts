@@ -7,6 +7,11 @@ export const list = asyncHandler(async (_req: Request, res: Response) => {
   res.json({ users });
 });
 
+export const listTechnicians = asyncHandler(async (_req: Request, res: Response) => {
+  const technicians = await service.listTechnicians();
+  res.json({ technicians });
+});
+
 export const getOne = asyncHandler(async (req: Request, res: Response) => {
   const user = await service.getById(req.params.id!);
   res.json({ user });

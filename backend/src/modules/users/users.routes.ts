@@ -4,12 +4,18 @@ import { createUserSchema, updateUserSchema } from './users.schema';
 import { idParamSchema } from '../../utils/commonSchemas';
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
-import { requireRole, ROLES } from '../../middleware/rbac.middleware';
+import { requireRole, ROLES, STAFF_ROLES } from '../../middleware/rbac.middleware';
 
 export const usersRouter = Router();
 
-// Panel administrador: exclusivo para Administradores.
-usersRouter.use(requireAuth, requireRole(ROLES.ADMIN));
+usersRouter.use(requireAuth);
+
+// Lista acotada (id + nombre) de quienes pueden tomar un ticket: la necesita
+// cualquier rol de soporte para asignar tecnico, no solo el Administrador.
+usersRouter.get('/technicians', requireRole(...STAFF_ROLES), controller.listTechnicians);
+
+// Resto del panel administrador: exclusivo para Administradores.
+usersRouter.use(requireRole(ROLES.ADMIN));
 
 usersRouter.get('/', controller.list);
 usersRouter.get('/:id', validate({ params: idParamSchema }), controller.getOne);

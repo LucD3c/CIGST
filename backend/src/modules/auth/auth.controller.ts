@@ -14,6 +14,12 @@ function cookieOptions(expiresAt?: Date): CookieOptions {
   };
 }
 
+async function withEmployeeContext(user: authService.SessionUser) {
+  if (!user.employeeId) return { ...user, employee: null };
+  const employee = await authService.getOwnEmployeeContext(user.employeeId);
+  return { ...user, employee };
+}
+
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const { username, password } = req.body as LoginInput;
   const { token, expiresAt, user } = await authService.login(username, password, {
@@ -22,7 +28,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   });
 
   res.cookie(env.SESSION_COOKIE_NAME, token, cookieOptions(expiresAt));
-  res.status(200).json({ user });
+  res.status(200).json({ user: await withEmployeeContext(user) });
 });
 
 export const logout = asyncHandler(async (req: Request, res: Response) => {
@@ -33,5 +39,6 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const me = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json({ user: req.user ?? null });
+  if (!req.user) return res.status(200).json({ user: null });
+  res.status(200).json({ user: await withEmployeeContext(req.user) });
 });

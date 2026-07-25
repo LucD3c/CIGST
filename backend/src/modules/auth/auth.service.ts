@@ -48,7 +48,7 @@ export async function login(username: string, password: string, meta: LoginMeta)
 
   // Mismo mensaje generico exista o no el usuario: no dar pistas a quien intenta
   // adivinar cuentas validas.
-  const genericError = () => HttpError.unauthorized('Usuario o contrasena incorrectos.');
+  const genericError = () => HttpError.unauthorized('Usuario o contraseña incorrectos.');
 
   if (!user || user.status !== 'Activo') throw genericError();
 
@@ -108,4 +108,46 @@ export async function resolveSession(token: string): Promise<SessionUser | null>
 
 export async function logoutAllSessionsForUser(userId: string) {
   await prisma.session.deleteMany({ where: { userId } });
+}
+
+export type OwnEmployeeContext = {
+  id: string;
+  name: string;
+  sector: string | null;
+  schedule: string | null;
+  workShift: string | null;
+  extension: string | null;
+  equipment: { id: string; asset: string | null; brand: string | null; model: string | null }[];
+  colleagues: { id: string; name: string; sector: string | null }[];
+};
+
+// El portal de autogestion del Empleado necesita su propio sector/horario/equipo
+// para prellenar el formulario de un ticket nuevo, pero ese rol no tiene acceso
+// a GET /api/employees ni /api/equipment (son solo para soporte). En vez de
+// abrir esos endpoints, se expone unicamente lo propio (y colegas del mismo
+// sector, para el campo "reemplazo") a traves de /api/auth/me.
+export async function getOwnEmployeeContext(employeeId: string): Promise<OwnEmployeeContext | null> {
+  const employee = await prisma.employee.findFirst({
+    where: { id: employeeId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      sector: true,
+      schedule: true,
+      workShift: true,
+      extension: true,
+      equipment: { where: { deletedAt: null }, select: { id: true, asset: true, brand: true, model: true } },
+    },
+  });
+  if (!employee) return null;
+
+  const colleagues = employee.sector
+    ? await prisma.employee.findMany({
+        where: { sector: employee.sector, deletedAt: null, status: 'Activo', id: { not: employee.id } },
+        select: { id: true, name: true, sector: true },
+        orderBy: { name: 'asc' },
+      })
+    : [];
+
+  return { ...employee, colleagues };
 }
