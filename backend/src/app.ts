@@ -16,6 +16,14 @@ export function createApp() {
 
   // CSP sin ningun origen externo: todo el JS/CSS/fuentes se sirve desde el
   // propio backend, no hay CDNs ni llamadas a otros dominios en runtime.
+  //
+  // HSTS solo tiene sentido si la conexion es realmente HTTPS. La mayoria de
+  // los despliegues de esta plataforma son HTTP simple dentro de la red
+  // interna (sin certificado); si Helmet manda igual el header
+  // Strict-Transport-Security, el navegador fuerza HTTPS en los pedidos
+  // siguientes (styles.css/app.js) y la app deja de cargar. Se activa solo
+  // cuando COOKIE_SECURE=true, es decir, cuando ya hay HTTPS delante (un
+  // proxy reverso interno).
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -29,9 +37,14 @@ export function createApp() {
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           frameAncestors: ["'self'"],
+          // Helmet la agrega por defecto; fuerza al navegador a pedir HTTPS
+          // incluso en un despliegue HTTP simple y rompe la carga de
+          // styles.css/app.js. Solo tiene sentido si COOKIE_SECURE=true.
+          upgradeInsecureRequests: env.COOKIE_SECURE ? [] : null,
         },
       },
       crossOriginResourcePolicy: { policy: 'same-origin' },
+      hsts: env.COOKIE_SECURE,
     }),
   );
 
