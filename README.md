@@ -6,18 +6,16 @@ internet en tiempo de ejecución.
 
 ## Estado del proyecto
 
-- **Backend real (esta etapa):** Node.js + TypeScript, PostgreSQL, autenticación
-  por sesión server-side, permisos por rol, CRUD completo de usuarios, personas,
-  equipos, tickets y bitácora técnica. Corre en Docker y ya fue probado de punta
-  a punta (ver "Qué quedó probado" más abajo).
-- **Interfaz visual (`index.html` / `app.js` / `styles.css`):** es la que ya
-  existía; el diseño no se tocó. Por ahora esa interfaz sigue usando su lógica
-  local original (`localStorage`) para no romper nada visualmente. Conectarla
-  al backend real (login, tickets, etc. contra la API) es la **próxima etapa**.
-  El backend queda sirviendo esos mismos archivos estáticos, así que hoy ya se
-  puede abrir la plataforma desde el navegador apuntando al servidor Docker.
-- **Chat / grupos entre usuarios:** planificado para una etapa posterior, una
-  vez conectada la interfaz al backend.
+- **Backend real:** Node.js + TypeScript, PostgreSQL, autenticación por sesión
+  server-side, permisos por rol, CRUD completo de usuarios, personas, equipos,
+  tickets y bitácora técnica. Corre en Docker.
+- **Interfaz visual (`index.html` / `app.js` / `styles.css`):** es la misma que
+  ya existía, con el mismo diseño — pero `app.js` ya no usa datos falsos en
+  `localStorage`: todo (login, sesión, tickets, personas, equipos, bitácora,
+  usuarios) se lee y se escribe contra la API real, con la visibilidad que le
+  corresponde a cada rol. Probado de punta a punta en un navegador real (ver
+  "Qué quedó probado" más abajo).
+- **Chat / grupos entre usuarios:** planificado para una etapa posterior.
 
 ## Requisitos
 
@@ -77,20 +75,31 @@ cargar datos a mano.
 ## Qué quedó probado en esta etapa
 
 Levantando la plataforma desde cero (`docker compose down -v && docker compose
-up -d`) se verificó, contra el backend real:
+up -d`) se verificó tanto por API como **navegando la interfaz real en un
+navegador (Chromium)**:
 
-- Login válido/inválido, cierre de sesión y expiración de sesión.
+- Pantalla de login sin credenciales precargadas; login válido/inválido con el
+  mismo mensaje de error mostrado en la interfaz, cierre de sesión real y
+  expiración/renovación de sesión.
 - Bloqueo por rate limiting tras intentos de login repetidos.
-- Un Administrador puede gestionar usuarios, personas y equipos; un Empleado
-  recibe `403` al intentarlo.
-- Un Empleado solo ve y crea sus propios tickets; no puede ver ni crear a
-  nombre de otra persona.
-- Alta, gestión (estado/prioridad/técnico asignado) y consulta de tickets.
-- Alta de eventos de bitácora vinculados a un ticket y a un equipo.
+- La interfaz se adapta al rol logueado: un Administrador ve todos los
+  módulos; un Técnico ve soporte pero no el panel de usuarios; un Empleado ve
+  únicamente "Mis solicitudes", sin la barra de navegación de soporte, y solo
+  sus propios tickets. Los intentos por fuera de lo que la interfaz permite
+  igual son rechazados por el backend (`403`), no solo ocultados visualmente.
+- Alta, gestión (estado/prioridad/técnico asignado) y consulta de tickets
+  desde el modal existente, con los datos reales de personas/equipos ya
+  resueltos (sin ids sueltos, con los códigos legibles de siempre: `TK-001`,
+  `EMP-001`, etc.).
+- Alta de personas, equipos, eventos de bitácora y usuarios desde los mismos
+  formularios existentes.
+- Errores de validación de la API se muestran con el mismo aviso (`toast`) que
+  ya usaba la plataforma, sin cerrar el formulario, para poder corregir y
+  reintentar.
 - Borrado (soft delete): un registro eliminado deja de listarse pero no se
   pierde de la base.
-- Validación de datos inválidos en el cuerpo de las solicitudes (respuesta
-  `400` con el detalle del campo).
+- La plataforma carga y funciona correctamente sobre HTTP simple (sin
+  certificado), como corresponde a un despliegue típico en red interna.
 - El backend sirve `index.html`/`app.js`/`styles.css` directamente (sin
   servidor aparte para el frontend).
 
@@ -138,3 +147,15 @@ cerrar sesión o expirar, porque no tiene sentido conservar un token muerto.
 
 La relación central se mantiene: **Persona → Equipamiento asignado → Tickets →
 solución/conocimiento**, con bitácora transversal.
+
+### Notas sobre el API para quien siga trabajando sobre esto
+
+- `GET /api/auth/me` devuelve, además de los datos de sesión, la persona
+  vinculada al usuario (sector, horario, equipo asignado y colegas del mismo
+  sector) cuando corresponde — es lo que usa el portal de un Empleado para no
+  necesitar acceso a `/api/employees` (que es exclusivo de soporte).
+- `GET /api/users/technicians` expone una lista acotada (id + nombre) de
+  usuarios con rol Administrador/Técnico activos, para el selector de "técnico
+  asignado" en la gestión de tickets. A diferencia de `GET /api/users`
+  (exclusivo de Administrador), este está disponible para cualquier rol de
+  soporte.
