@@ -20,6 +20,18 @@ async function assertEmployeeAvailable(employeeId: string | null | undefined) {
   if (!found) throw HttpError.badRequest('La persona vinculada indicada no existe.');
 }
 
+// Evita que la plataforma se quede sin ningun Administrador activo: solo
+// importa cuando el usuario en cuestion ES hoy un admin activo (degradarlo,
+// desactivarlo o borrarlo son los tres casos que podrian dejarla sin nadie
+// que administre).
+async function assertNotLastActiveAdmin(user: { id: string; status: string; role: { name: string } }) {
+  if (user.role.name !== 'Administrador' || user.status !== 'Activo') return;
+  const remaining = await repo.countActiveAdmins(user.id);
+  if (remaining === 0) {
+    throw HttpError.badRequest('No podés dejar la plataforma sin ningún Administrador activo.');
+  }
+}
+
 export async function list() {
   return repo.findMany();
 }
@@ -56,8 +68,11 @@ export async function create(data: CreateUserInput) {
 }
 
 export async function update(id: string, data: UpdateUserInput) {
-  await getById(id);
+  const existing = await getById(id);
   if (data.employeeId !== undefined) await assertEmployeeAvailable(data.employeeId);
+  const demoting = data.role !== undefined && data.role !== 'Administrador';
+  const deactivating = data.status === 'Inactivo';
+  if (demoting || deactivating) await assertNotLastActiveAdmin(existing);
 
   const patch: Partial<{ name: string; roleId: string; employeeId: string | null; status: string; passwordHash: string }> = {};
   if (data.name !== undefined) patch.name = data.name;
@@ -80,9 +95,11 @@ export async function update(id: string, data: UpdateUserInput) {
   }
 }
 
-export async function remove(id: string) {
-  await getById(id);
-  const removed = await repo.softDelete(id);
-  await logoutAllSessionsForUser(id);
-  return removed;
+export async function remove(id: string, actingUserId: string) {
+  if (id === actingUserId) {
+    throw HttpError.badRequest('No podés eliminar tu propio usuario.');
+  }
+  const existing = await getById(id);
+  await assertNotLastActiveAdmin(existing);
+  return repo.hardDelete(id);
 }

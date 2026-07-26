@@ -69,10 +69,21 @@ export async function update(
   return prisma.user.update({ where: { id }, data, select: publicSelect });
 }
 
-export function softDelete(id: string) {
-  return prisma.user.update({
-    where: { id },
-    data: { deletedAt: new Date(), status: 'Inactivo' },
-    select: publicSelect,
+// Borrado real (no logico): a pedido explicito del negocio, un usuario
+// eliminado por un Administrador desaparece de verdad de la base. Las
+// referencias opcionales (tickets, bitacora) quedan en null via SetNull en
+// el schema; las sesiones de ese usuario se borran en cascada.
+export function hardDelete(id: string) {
+  return prisma.user.delete({ where: { id } });
+}
+
+export function countActiveAdmins(excludingId?: string) {
+  return prisma.user.count({
+    where: {
+      ...activeFilter,
+      status: 'Activo',
+      role: { name: 'Administrador' },
+      ...(excludingId ? { id: { not: excludingId } } : {}),
+    },
   });
 }

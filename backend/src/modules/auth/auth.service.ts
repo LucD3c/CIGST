@@ -113,41 +113,51 @@ export async function logoutAllSessionsForUser(userId: string) {
 export type OwnEmployeeContext = {
   id: string;
   name: string;
-  sector: string | null;
+  sectorId: string | null;
+  sectorName: string | null;
   schedule: string | null;
   workShift: string | null;
   extension: string | null;
-  equipment: { id: string; asset: string | null; brand: string | null; model: string | null }[];
-  colleagues: { id: string; name: string; sector: string | null }[];
+  equipment: { id: string; type: string; model: string | null }[];
 };
 
 // El portal de autogestion del Empleado necesita su propio sector/horario/equipo
 // para prellenar el formulario de un ticket nuevo, pero ese rol no tiene acceso
-// a GET /api/employees ni /api/equipment (son solo para soporte). En vez de
-// abrir esos endpoints, se expone unicamente lo propio (y colegas del mismo
-// sector, para el campo "reemplazo") a traves de /api/auth/me.
+// a GET /api/employees (es solo para soporte). En vez de abrir ese endpoint,
+// se expone unicamente lo propio a traves de /api/auth/me: su sector y el
+// equipamiento de ese sector (el equipo ya no se vincula a una persona, sino
+// a un sector completo).
 export async function getOwnEmployeeContext(employeeId: string): Promise<OwnEmployeeContext | null> {
   const employee = await prisma.employee.findFirst({
     where: { id: employeeId, deletedAt: null },
     select: {
       id: true,
       name: true,
-      sector: true,
+      sectorId: true,
+      sector: { select: { name: true } },
       schedule: true,
       workShift: true,
       extension: true,
-      equipment: { where: { deletedAt: null }, select: { id: true, asset: true, brand: true, model: true } },
     },
   });
   if (!employee) return null;
 
-  const colleagues = employee.sector
-    ? await prisma.employee.findMany({
-        where: { sector: employee.sector, deletedAt: null, status: 'Activo', id: { not: employee.id } },
-        select: { id: true, name: true, sector: true },
-        orderBy: { name: 'asc' },
+  const equipment = employee.sectorId
+    ? await prisma.equipment.findMany({
+        where: { sectorId: employee.sectorId, deletedAt: null, status: 'Activo' },
+        select: { id: true, type: true, model: true },
+        orderBy: { createdAt: 'desc' },
       })
     : [];
 
-  return { ...employee, colleagues };
+  return {
+    id: employee.id,
+    name: employee.name,
+    sectorId: employee.sectorId,
+    sectorName: employee.sector?.name ?? null,
+    schedule: employee.schedule,
+    workShift: employee.workShift,
+    extension: employee.extension,
+    equipment,
+  };
 }

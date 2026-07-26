@@ -28,6 +28,6 @@ export const update = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const remove = asyncHandler(async (req: Request, res: Response) => {
-  await service.remove(req.params.id!);
+  await service.remove(req.params.id!, req.user!.id);
   res.status(204).send();
 });
