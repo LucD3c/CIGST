@@ -32,6 +32,14 @@ async function main() {
     console.log(`Usuario administrador "${adminUsername}" ya existe, no se modifica.`);
   }
 
+  // Sectores de referencia: catalogo minimo para arrancar sin la plataforma vacia.
+  const sectorNames = ['Administración', 'Sistemas'];
+  const sectors = new Map<string, string>();
+  for (const name of sectorNames) {
+    const sector = await prisma.sector.upsert({ where: { name }, update: {}, create: { name } });
+    sectors.set(name, sector.id);
+  }
+
   // Caso de referencia (equivalente al que traia la version local en localStorage)
   // para poder probar el circuito completo apenas se levanta el entorno.
   const referenceEmployee = await prisma.employee.upsert({
@@ -42,7 +50,7 @@ async function main() {
       name: 'María González',
       email: 'mgonzalez@centromedico.com',
       extension: '101',
-      sector: 'Administración',
+      sectorId: sectors.get('Administración'),
       position: 'Colaboradora',
       status: 'Activo',
       workShift: 'Mañana',
@@ -56,13 +64,9 @@ async function main() {
     create: {
       code: 'EQ-001',
       type: 'PC',
-      brand: 'Dell',
-      model: 'OptiPlex',
-      asset: 'AF-001',
-      status: 'Operativo',
-      employeeId: referenceEmployee.id,
-      location: 'Administración',
-      warranty: 'No registrada',
+      model: 'Dell OptiPlex',
+      status: 'Activo',
+      sectorId: sectors.get('Administración'),
     },
   });
 
@@ -91,12 +95,11 @@ async function main() {
       employeeId: referenceEmployee.id,
       requestedById: referenceEmployee.id,
       equipmentId: referenceEquipment.id,
-      location: referenceEmployee.sector,
+      sectorId: referenceEmployee.sectorId,
       contact: 'Interno telefónico',
       availability: referenceEmployee.schedule,
       supportShift: referenceEmployee.workShift,
       category: 'Otro',
-      impact: 'Individual',
       status: 'Nuevo',
       priority: 'Media',
     },
