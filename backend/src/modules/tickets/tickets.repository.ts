@@ -8,6 +8,7 @@ const include = {
   requestedBy: true,
   equipment: true,
   sector: true,
+  schedule: true,
   technician: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
 } as const;

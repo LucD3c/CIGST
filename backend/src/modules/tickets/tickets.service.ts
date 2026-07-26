@@ -2,6 +2,7 @@ import { HttpError } from '../../utils/httpError';
 import * as repo from './tickets.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
+import * as schedulesRepo from '../schedules/schedules.repository';
 import { prisma } from '../../db/prisma';
 import type { SessionUser } from '../auth/auth.service';
 import { ROLES } from '../../middleware/rbac.middleware';
@@ -29,17 +30,23 @@ async function assertSectorValid(sectorId: string | null | undefined) {
   if (!found) throw HttpError.badRequest('El sector indicado no existe.');
 }
 
+async function assertScheduleValid(scheduleId: string | null | undefined) {
+  if (!scheduleId) return;
+  const found = await schedulesRepo.existsActive(scheduleId);
+  if (!found) throw HttpError.badRequest('El turno indicado no existe.');
+}
+
 async function assertTechnicianExists(id: string | null | undefined) {
   if (!id) return;
   const user = await prisma.user.findFirst({
-    where: { id, deletedAt: null, status: 'Activo', role: { name: { in: [ROLES.ADMIN, ROLES.TECH] } } },
+    where: { id, deletedAt: null, status: 'Activo', role: { name: { in: [ROLES.ADMIN, ROLES.SUPERVISOR] } } },
     select: { id: true },
   });
-  if (!user) throw HttpError.badRequest('El técnico asignado indicado no es válido.');
+  if (!user) throw HttpError.badRequest('El responsable asignado indicado no es válido.');
 }
 
 function isStaff(user: SessionUser) {
-  return user.role === ROLES.ADMIN || user.role === ROLES.TECH;
+  return user.role === ROLES.ADMIN || user.role === ROLES.SUPERVISOR;
 }
 
 export async function list(user: SessionUser, q?: string) {
@@ -73,6 +80,7 @@ export async function createByStaff(user: SessionUser, data: CreateTicketByStaff
   await assertOptionalEmployeeExists(requestedById, 'La persona que solicito');
   await assertEquipmentExists(data.equipmentId);
   await assertSectorValid(data.sectorId);
+  await assertScheduleValid(data.scheduleId);
 
   const affected = await employeesRepo.findById(data.employeeId);
 
@@ -83,9 +91,7 @@ export async function createByStaff(user: SessionUser, data: CreateTicketByStaff
     requestedById,
     equipmentId: data.equipmentId ?? null,
     sectorId: data.sectorId ?? affected?.sectorId ?? null,
-    contact: data.contact ?? null,
-    availability: data.availability ?? affected?.schedule ?? null,
-    supportShift: data.supportShift ?? affected?.workShift ?? null,
+    scheduleId: data.scheduleId ?? null,
     category: data.category,
     priority: data.priority ?? 'Media',
     status: 'Nuevo',
@@ -99,6 +105,7 @@ export async function createSelfService(user: SessionUser, data: CreateTicketSel
   }
   await assertEquipmentExists(data.equipmentId);
   await assertSectorValid(data.sectorId);
+  await assertScheduleValid(data.scheduleId);
 
   const affected = await employeesRepo.findById(user.employeeId);
 
@@ -109,9 +116,7 @@ export async function createSelfService(user: SessionUser, data: CreateTicketSel
     requestedById: user.employeeId,
     equipmentId: data.equipmentId ?? null,
     sectorId: data.sectorId ?? affected?.sectorId ?? null,
-    contact: data.contact ?? null,
-    availability: data.availability ?? affected?.schedule ?? null,
-    supportShift: data.supportShift ?? affected?.workShift ?? null,
+    scheduleId: data.scheduleId ?? null,
     category: data.category,
     priority: data.priority ?? 'Media',
     status: 'Nuevo',

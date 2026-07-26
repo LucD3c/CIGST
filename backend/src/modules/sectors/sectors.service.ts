@@ -1,16 +1,24 @@
 import { HttpError } from '../../utils/httpError';
 import { isUniqueConstraintError } from '../../utils/prismaErrors';
 import * as repo from './sectors.repository';
+import * as employeesRepo from '../employees/employees.repository';
+import * as equipmentRepo from '../equipment/equipment.repository';
 import type { CreateSectorInput, UpdateSectorInput } from './sectors.schema';
 
 export async function list(q?: string) {
   return repo.findMany(q);
 }
 
+// El detalle de un sector muestra quienes lo integran (personas y equipos),
+// para poder administrar "quien esta en que sector" desde un solo lugar.
 export async function getById(id: string) {
   const sector = await repo.findById(id);
   if (!sector) throw HttpError.notFound('Sector no encontrado.');
-  return sector;
+  const [people, equipment] = await Promise.all([
+    employeesRepo.findBySector(id),
+    equipmentRepo.findBySector(id),
+  ]);
+  return { ...sector, people, equipment };
 }
 
 export async function create(data: CreateSectorInput) {

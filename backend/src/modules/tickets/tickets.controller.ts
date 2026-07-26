@@ -6,7 +6,7 @@ import { createTicketByStaffSchema, createTicketSelfServiceSchema } from './tick
 import * as service from './tickets.service';
 
 function isStaff(role: string) {
-  return role === ROLES.ADMIN || role === ROLES.TECH;
+  return role === ROLES.ADMIN || role === ROLES.SUPERVISOR;
 }
 
 export const list = asyncHandler(async (req: Request, res: Response) => {

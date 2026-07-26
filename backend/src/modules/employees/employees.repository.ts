@@ -52,3 +52,12 @@ export function softDelete(id: string) {
 export function existsActive(id: string) {
   return prisma.employee.findFirst({ where: { id, ...activeFilter }, select: { id: true } });
 }
+
+// Reutilizado por sectors.service para mostrar, en el detalle de un sector,
+// que personas lo integran.
+export function findBySector(sectorId: string) {
+  return prisma.employee.findMany({
+    where: { sectorId, ...activeFilter },
+    orderBy: { name: 'asc' },
+  });
+}

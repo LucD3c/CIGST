@@ -6,6 +6,7 @@ import { equipmentRouter } from '../modules/equipment/equipment.routes';
 import { ticketsRouter } from '../modules/tickets/tickets.routes';
 import { logbookRouter } from '../modules/logbook/logbook.routes';
 import { sectorsRouter } from '../modules/sectors/sectors.routes';
+import { schedulesRouter } from '../modules/schedules/schedules.routes';
 
 export const apiRouter = Router();
 
@@ -18,3 +19,4 @@ apiRouter.use('/equipment', equipmentRouter);
 apiRouter.use('/tickets', ticketsRouter);
 apiRouter.use('/logbook', logbookRouter);
 apiRouter.use('/sectors', sectorsRouter);
+apiRouter.use('/schedules', schedulesRouter);
