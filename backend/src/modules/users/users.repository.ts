@@ -1,4 +1,5 @@
 import { prisma } from '../../db/prisma';
+import { ROLES } from '../../middleware/rbac.middleware';
 
 const activeFilter = { deletedAt: null } as const;
 
@@ -19,7 +20,7 @@ const publicSelect = {
 
 export function findTechnicians() {
   return prisma.user.findMany({
-    where: { ...activeFilter, status: 'Activo', role: { name: { in: ['Administrador', 'Técnico'] } } },
+    where: { ...activeFilter, status: 'Activo', role: { name: { in: [ROLES.ADMIN, ROLES.SUPERVISOR] } } },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });

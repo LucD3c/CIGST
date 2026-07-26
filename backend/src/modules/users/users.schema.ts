@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { nullableUuid } from '../../utils/commonSchemas';
 import { ROLES } from '../../middleware/rbac.middleware';
 
-export const roleValues = [ROLES.ADMIN, ROLES.TECH, ROLES.EMPLOYEE] as const;
+export const roleValues = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.USER] as const;
 export const userStatusValues = ['Activo', 'Inactivo'] as const;
 
 const usernamePattern = /^[a-z0-9._-]+$/i;
@@ -20,8 +20,8 @@ export const createUserSchema = z
     role: z.enum(roleValues),
     employeeId: nullableUuid,
   })
-  .refine((data) => data.role !== ROLES.EMPLOYEE || Boolean(data.employeeId), {
-    message: 'Un usuario de rol Empleado debe estar vinculado a una persona.',
+  .refine((data) => data.role !== ROLES.USER || Boolean(data.employeeId), {
+    message: 'Un usuario de rol User debe estar vinculado a una persona.',
     path: ['employeeId'],
   });
 
