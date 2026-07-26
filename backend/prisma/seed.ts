@@ -114,6 +114,31 @@ async function main() {
     },
   });
 
+  // Conversacion de referencia (chat interno) entre el admin y el usuario de
+  // ejemplo, para poder probar el circuito completo sin cargar datos a mano.
+  const adminUser = await prisma.user.findUnique({ where: { username: adminUsername } });
+  const employeeUser = await prisma.user.findUnique({ where: { employeeId: referenceEmployee.id } });
+  if (adminUser && employeeUser) {
+    const [userAId, userBId] = [adminUser.id, employeeUser.id].sort();
+    const conversation = await prisma.conversation.upsert({
+      where: { userAId_userBId: { userAId, userBId } },
+      update: {},
+      create: { userAId, userBId },
+    });
+    const existingMessage = await prisma.message.findFirst({ where: { conversationId: conversation.id } });
+    if (!existingMessage) {
+      const message = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: adminUser.id,
+          body: 'Hola María, cualquier consulta sobre tu ticket me escribís por acá.',
+        },
+      });
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: message.createdAt } });
+      console.log('Conversacion de referencia creada entre admin y mgonzalez.');
+    }
+  }
+
   console.log('Seed completado.');
 }
 

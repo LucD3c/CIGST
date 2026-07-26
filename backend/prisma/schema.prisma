@@ -49,6 +49,9 @@ model User {
   ticketsCreated  Ticket[]        @relation("TicketCreatedBy")
   ticketsAssigned Ticket[]        @relation("TicketTechnician")
   logbookEntries  LogbookEntry[]
+  conversationsAsUserA Conversation[] @relation("ConversationUserA")
+  conversationsAsUserB Conversation[] @relation("ConversationUserB")
+  chatMessages         Message[]
 
   @@index([roleId])
   @@index([employeeId])
@@ -194,6 +197,45 @@ model Ticket {
   @@index([createdById])
   @@index([status])
   @@map("tickets")
+}
+
+// Chat interno 1 a 1. Sin tabla de "grupos" (fuera de alcance por ahora).
+// Conversation se crea recien con el primer mensaje (ver chat.service.ts),
+// asi lastMessageAt nunca es null y el listado se ordena sin casos especiales.
+// El par de usuarios se guarda canonico (userAId < userBId alfabeticamente)
+// para que nunca existan dos conversaciones para el mismo par.
+// Sin deletedAt: este alcance no incluye borrar ni editar mensajes.
+model Conversation {
+  id            String   @id @default(uuid())
+  userAId       String   @map("user_a_id")
+  userBId       String   @map("user_b_id")
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  userA    User      @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB    User      @relation("ConversationUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@map("chat_conversations")
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  senderId       String    @map("sender_id")
+  body           String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  readAt         DateTime? @map("read_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("chat_messages")
 }
 
 model LogbookEntry {
