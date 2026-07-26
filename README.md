@@ -17,12 +17,21 @@ internet en tiempo de ejecución.
   probado" más abajo).
 - **Ronda de usabilidad:** el alta de tickets y equipamiento se simplificó a
   propósito para que cualquier persona lo complete en segundos: mayoría de
-  desplegables, mínimo texto para tipear, y un catálogo de **Sectores**
-  reutilizable (se puede crear un sector nuevo al vuelo desde el propio
-  desplegable). Soporte puede cerrar/resolver un ticket con un clic desde la
-  lista, sin entrar al detalle. El Panel administrador permite editar y
-  eliminar usuarios de verdad.
-- **Chat / grupos entre usuarios:** planificado para una etapa posterior.
+  desplegables, mínimo texto para tipear. Soporte puede cerrar/resolver un
+  ticket con un clic desde la lista, sin entrar al detalle. El Panel
+  administrador permite editar y eliminar usuarios de verdad.
+- **Sectores y Turnos como secciones propias:** dejaron de crearse "al vuelo"
+  desde un desplegable — ahora tienen su propia pantalla dentro de
+  "Información", con listado, alta, edición y (para Sectores) el detalle de
+  qué personas y equipos tiene asignados cada uno. El horario de soporte de
+  un ticket también pasó a ser un catálogo administrable (**Turnos**) en vez
+  de una hora tipeada a mano; la hora de creación del ticket queda registrada
+  sola y se muestra en su detalle.
+- **Roles: Administrador / Supervisor / User.** Se renombraron `Técnico` →
+  `Supervisor` y `Empleado` → `User` (mismo alcance de antes en cada caso).
+  La Bitácora técnica pasó a ser exclusiva de Administrador.
+- **Chat / grupos entre usuarios y estadísticas por persona en el Centro de
+  operaciones:** planificado para una etapa posterior.
 
 ## Requisitos
 
@@ -67,7 +76,7 @@ docker compose down -v     # apaga y borra también los datos (reinicio de fábr
 | Usuario | Contraseña | Rol |
 | --- | --- | --- |
 | `admin` (o el valor de `SEED_ADMIN_USERNAME`) | la definida en `SEED_ADMIN_PASSWORD` | Administrador |
-| `mgonzalez` | `empleado123` | Empleado (dato de referencia, ver abajo) |
+| `mgonzalez` | `empleado123` | User (dato de referencia, ver abajo) |
 
 El primer arranque crea un único caso de referencia (una colaboradora, un
 equipo asignado y un ticket) para poder probar el circuito completo sin
@@ -75,9 +84,9 @@ cargar datos a mano.
 
 | Rol | Acceso |
 | --- | --- |
-| Administrador | Todos los módulos, incluido el panel de usuarios. |
-| Técnico | Tickets, personas, equipamiento y bitácora. |
-| Empleado | Solo sus propias solicitudes y la creación de un nuevo ticket. |
+| Administrador | Todos los módulos, incluidos Bitácora técnica y el panel de usuarios. |
+| Supervisor | Tickets de todos los sectores (crea y gestiona los de cualquiera), personas, equipamiento y Sectores/Turnos. No ve Bitácora ni el panel de usuarios. |
+| User | Solo sus propias solicitudes y la creación de un nuevo ticket. |
 
 ## Qué quedó probado en esta etapa
 
@@ -90,17 +99,26 @@ navegador (Chromium)**:
   expiración/renovación de sesión.
 - Bloqueo por rate limiting tras intentos de login repetidos.
 - La interfaz se adapta al rol logueado: un Administrador ve todos los
-  módulos; un Técnico ve soporte pero no el panel de usuarios; un Empleado ve
-  únicamente "Mis solicitudes", sin la barra de navegación de soporte, y solo
-  sus propios tickets. Los intentos por fuera de lo que la interfaz permite
-  igual son rechazados por el backend (`403`), no solo ocultados visualmente.
-- Alta, gestión (estado/prioridad/técnico asignado) y consulta de tickets
-  desde el modal existente, con los datos reales de personas/equipos ya
+  módulos, incluida Bitácora técnica; un Supervisor ve soporte (tickets de
+  todos los sectores, personas, equipamiento, Sectores/Turnos) pero no
+  Bitácora ni el panel de usuarios; un User ve únicamente "Mis solicitudes",
+  sin la barra de navegación de soporte, y solo sus propios tickets. Los
+  intentos por fuera de lo que la interfaz permite igual son rechazados por
+  el backend (`403`), no solo ocultados visualmente — incluida la Bitácora,
+  que un Supervisor recibe con `403` si intenta acceder directo a la API.
+- Alta, gestión (estado/prioridad/asignado a) y consulta de tickets desde el
+  modal existente, con los datos reales de personas/equipos/sector/turno ya
   resueltos (sin ids sueltos, con los códigos legibles de siempre: `TK-001`,
-  `EMP-001`, etc.).
+  `EMP-001`, etc.). El formulario de ticket ya no pide horario disponible ni
+  canal de contacto: la hora queda registrada sola y se muestra en el
+  detalle.
 - Alta de personas, equipos, eventos de bitácora y usuarios desde los mismos
-  formularios existentes, ahora con el catálogo de **Sectores** compartido
-  (con alta "al vuelo" desde el propio desplegable, solo para soporte).
+  formularios existentes, con el desplegable de **Sector** listando solo los
+  sectores ya creados desde la pantalla dedicada (sin alta al vuelo).
+- Pantalla propia de **Sectores** (dentro de "Información"): listado, alta,
+  edición, detalle con las personas y equipos de cada sector, y una sección
+  de **Turnos de soporte** (alta/edición de los horarios que usa la empresa,
+  con validación de formato `HH:MM` y de que inicio y fin no sean iguales).
 - Menú de acciones rápidas (⋮) en la lista de tickets: marcar Resuelto, Cerrar
   o Asignarme sin abrir el detalle completo.
 - Panel administrador: edición completa de un usuario (nombre, rol, persona
@@ -110,9 +128,9 @@ navegador (Chromium)**:
 - Errores de validación de la API se muestran con el mismo aviso (`toast`) que
   ya usaba la plataforma, sin cerrar el formulario, para poder corregir y
   reintentar.
-- Borrado lógico (soft delete) en Personas, Equipos, Tickets, Bitácora y
-  Sectores: un registro eliminado deja de listarse pero no se pierde de la
-  base. Usuarios es la única excepción deliberada (ver "Seguridad").
+- Borrado lógico (soft delete) en Personas, Equipos, Tickets, Bitácora,
+  Sectores y Turnos: un registro eliminado deja de listarse pero no se pierde
+  de la base. Usuarios es la única excepción deliberada (ver "Seguridad").
 - La plataforma carga y funciona correctamente sobre HTTP simple (sin
   certificado), como corresponde a un despliegue típico en red interna.
 - El backend sirve `index.html`/`app.js`/`styles.css` directamente (sin
@@ -152,8 +170,8 @@ backend/
     config/      configuración y validación de variables de entorno
     db/          cliente de Prisma (PostgreSQL)
     middleware/  autenticación, autorización por rol, validación, rate limit
-    modules/     auth, users, employees, equipment, tickets, logbook, sectors
-                 (cada uno: routes -> controller -> service -> repository)
+    modules/     auth, users, employees, equipment, tickets, logbook, sectors,
+                 schedules (cada uno: routes -> controller -> service -> repository)
     routes/      router principal de /api
   prisma/        schema.prisma, migraciones y seed inicial
   Dockerfile
@@ -161,33 +179,46 @@ docker-compose.yml
 index.html / app.js / styles.css / fonts/   interfaz existente (sin cambios de diseño)
 ```
 
-Entidades: Rol, Usuario, Sesión, Persona, Equipo, Ticket, Bitácora técnica y
-Sector. Todas con identificador UUID, fechas de auditoría
-(`createdAt`/`updatedAt`) y borrado lógico (`deletedAt`), con dos excepciones
-deliberadas: Sesión se elimina de verdad al cerrar sesión o expirar (no tiene
-sentido conservar un token muerto), y Usuario se elimina de verdad cuando lo
-borra un Administrador (ver "Seguridad").
+Entidades: Rol, Usuario, Sesión, Persona, Equipo, Ticket, Bitácora técnica,
+Sector y Turno (horario de soporte). Todas con identificador UUID, fechas de
+auditoría (`createdAt`/`updatedAt`) y borrado lógico (`deletedAt`), con dos
+excepciones deliberadas: Sesión se elimina de verdad al cerrar sesión o
+expirar (no tiene sentido conservar un token muerto), y Usuario se elimina de
+verdad cuando lo borra un Administrador (ver "Seguridad").
 
 **Sector** es el catálogo compartido de ubicaciones/áreas de la empresa
-(`Administración`, `Sistemas`, etc.): Persona, Equipo y Ticket eligen su
-sector de esa misma lista, en vez de tipearlo cada vez. Equipo ya no se
-vincula a una persona puntual sino a un sector completo — la ficha de una
-persona muestra el equipamiento de su propio sector.
+(`Administración`, `Sistemas`, etc.), administrado desde su propia pantalla:
+Persona, Equipo y Ticket eligen su sector de esa misma lista, en vez de
+tipearlo cada vez. Equipo ya no se vincula a una persona puntual sino a un
+sector completo — la ficha de una persona muestra el equipamiento de su
+propio sector. **Turno** es el catálogo de horarios de soporte de la empresa
+(`Mañana` 07:30–14:30, `Tarde` 14:30–21:00 por defecto), administrado desde
+la misma pantalla de Sectores; un ticket puede referenciar el turno en el que
+se lo atendió.
 
 La relación central se mantiene: **Persona/Sector → Equipamiento → Tickets →
 solución/conocimiento**, con bitácora transversal.
 
 ### Notas sobre el API para quien siga trabajando sobre esto
 
-- `GET /api/sectors` está disponible para cualquier rol autenticado (un
-  Empleado lo necesita para elegir su sector al pedir soporte); crear/editar
-  es de soporte (Admin+Técnico), borrar es solo Admin.
+- `GET /api/sectors` y `GET /api/schedules` están disponibles para cualquier
+  rol autenticado (un User los necesita para elegir sector/turno al pedir
+  soporte); crear/editar es de soporte (Admin+Supervisor), borrar es solo
+  Admin. `GET /api/sectors/:id` devuelve además las personas y equipos
+  vinculados a ese sector (lo usa la pantalla de detalle).
 - `GET /api/auth/me` devuelve, además de los datos de sesión, la persona
   vinculada al usuario (su sector y el equipamiento de ese sector) cuando
-  corresponde — es lo que usa el portal de un Empleado para no necesitar
-  acceso a `/api/employees` (que es exclusivo de soporte).
+  corresponde — es lo que usa el portal de un User para no necesitar acceso a
+  `/api/employees` (que es exclusivo de soporte).
 - `GET /api/users/technicians` expone una lista acotada (id + nombre) de
-  usuarios con rol Administrador/Técnico activos, para el selector de "técnico
-  asignado" en la gestión de tickets. A diferencia de `GET /api/users`
+  usuarios con rol Administrador/Supervisor activos, para el selector de
+  "asignado a" en la gestión de tickets. A diferencia de `GET /api/users`
   (exclusivo de Administrador), este está disponible para cualquier rol de
   soporte.
+- `GET /api/logbook` (y el resto de la Bitácora técnica) es exclusivo de
+  Administrador — un Supervisor recibe `403` aunque antes (como Técnico)
+  tuviera acceso.
+- Los roles son datos, no un enum fijo en el esquema: `Técnico`/`Empleado`
+  se renombraron a `Supervisor`/`User` con una migración de datos
+  (`UPDATE roles SET name = ...`) que preserva los `id` existentes, así los
+  usuarios ya creados no perdieron su vínculo de rol.
