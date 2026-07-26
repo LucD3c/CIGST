@@ -6,7 +6,7 @@ const activeFilter = { deletedAt: null } as const;
 const include = {
   author: { select: { id: true, name: true } },
   relatedTicket: { select: { id: true, code: true, title: true } },
-  relatedEquipment: { select: { id: true, code: true, brand: true, model: true } },
+  relatedEquipment: { select: { id: true, code: true, type: true, model: true } },
 } as const;
 
 export function findMany() {
