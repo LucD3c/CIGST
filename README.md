@@ -30,8 +30,13 @@ internet en tiempo de ejecución.
 - **Roles: Administrador / Supervisor / User.** Se renombraron `Técnico` →
   `Supervisor` y `Empleado` → `User` (mismo alcance de antes en cada caso).
   La Bitácora técnica pasó a ser exclusiva de Administrador.
-- **Chat / grupos entre usuarios y estadísticas por persona en el Centro de
-  operaciones:** planificado para una etapa posterior.
+- **Chat interno (1 a 1):** mensajería directa entre cualquier par de
+  usuarios de la plataforma (sin restricción por rol — es entre personas, no
+  por jerarquía), 100% tráfico local. Cada quien solo puede leer/escribir sus
+  propias conversaciones — ni siquiera un Administrador puede leer chats
+  ajenos (ver "Privacidad del chat" en Seguridad). Sin grupos todavía.
+- **Grupos de chat y estadísticas por persona en el Centro de operaciones:**
+  planificado para una etapa posterior.
 
 ## Requisitos
 
@@ -135,6 +140,17 @@ navegador (Chromium)**:
   certificado), como corresponde a un despliegue típico en red interna.
 - El backend sirve `index.html`/`app.js`/`styles.css` directamente (sin
   servidor aparte para el frontend).
+- **Chat interno:** dos usuarios reales conversando en dos sesiones de
+  navegador distintas, con el mensaje llegando al otro extremo únicamente
+  por el polling HTTP de la app (sin recargar la página). Un mensaje con
+  contenido `<script>alert(1)</script><img src=x onerror="alert(2)">` se
+  verificó que se renderiza como texto plano — cero `<script>` insertado en
+  el DOM, cero diálogo `alert()` disparado. Badge de no leídos en el ítem de
+  navegación, matriz completa de permisos por API directa (ver "Privacidad
+  del chat"), rate limiting de envío confirmado con una ráfaga de 30+1
+  mensajes, y paginación de historial verificada con más de 30 mensajes en
+  una misma conversación. Cero llamadas a hosts externos confirmado también
+  durante varios ciclos de polling.
 
 ## Seguridad de esta etapa
 
@@ -157,6 +173,26 @@ navegador (Chromium)**:
   se cierran en cascada. Un Administrador no puede borrarse a sí mismo ni
   dejar la plataforma sin ningún Administrador activo.
 
+### Privacidad del chat
+
+Un usuario solo puede leer o escribir en una conversación de la que es
+participante — verificado explícitamente por API con un usuario ajeno,
+que recibe `403` al intentar leer, escribir o marcar como leída una
+conversación entre otras dos personas. **Esto rige también para
+Administrador: no hay bypass por rol.** Es una decisión deliberada de
+privacidad, no un descuido — la contracara es que hoy no existe ningún
+camino de auditoría dentro de la plataforma para investigar un reclamo de
+mal uso del chat (los mensajes viven en Postgres igual, así que un export a
+nivel de base sigue siendo posible como último recurso). Si en algún
+momento se necesita una vía formal, la recomendación es un mecanismo
+separado y *auditado* (ej. exportar una conversación puntual bajo un motivo
+registrado, con su propio log), no un acceso silencioso vía la interfaz.
+
+Un usuario desactivado no puede autenticarse (y por lo tanto no puede
+enviar ni recibir mensajes); tampoco se le puede iniciar una conversación
+nueva, y si se desactiva a mitad de una conversación existente, el otro
+participante ya no puede seguir escribiéndole ahí.
+
 Pendiente para un despliegue en producción más exigente: HTTPS (vía un proxy
 reverso interno, por ejemplo si se necesita cifrado dentro de la propia red),
 rotación de contraseñas desde la interfaz (hoy se administra por API) y
@@ -171,7 +207,7 @@ backend/
     db/          cliente de Prisma (PostgreSQL)
     middleware/  autenticación, autorización por rol, validación, rate limit
     modules/     auth, users, employees, equipment, tickets, logbook, sectors,
-                 schedules (cada uno: routes -> controller -> service -> repository)
+                 schedules, chat (cada uno: routes -> controller -> service -> repository)
     routes/      router principal de /api
   prisma/        schema.prisma, migraciones y seed inicial
   Dockerfile
@@ -180,11 +216,16 @@ index.html / app.js / styles.css / fonts/   interfaz existente (sin cambios de d
 ```
 
 Entidades: Rol, Usuario, Sesión, Persona, Equipo, Ticket, Bitácora técnica,
-Sector y Turno (horario de soporte). Todas con identificador UUID, fechas de
-auditoría (`createdAt`/`updatedAt`) y borrado lógico (`deletedAt`), con dos
-excepciones deliberadas: Sesión se elimina de verdad al cerrar sesión o
-expirar (no tiene sentido conservar un token muerto), y Usuario se elimina de
-verdad cuando lo borra un Administrador (ver "Seguridad").
+Sector, Turno (horario de soporte), Conversación y Mensaje (chat interno).
+Todas con identificador UUID y fechas de auditoría, con soft delete
+(`deletedAt`) donde tiene sentido y estas excepciones deliberadas: Sesión se
+elimina de verdad al cerrar sesión o expirar (no tiene sentido conservar un
+token muerto); Usuario se elimina de verdad cuando lo borra un Administrador
+(ver "Seguridad"); y Conversación/Mensaje tampoco llevan `deletedAt` — este
+alcance no incluye borrar ni editar mensajes, así que el campo no tendría
+uso todavía. Si un usuario se elimina, sus conversaciones (y los mensajes
+dentro de ellas) se eliminan en cascada junto con él, ya que una
+conversación sin sus dos participantes deja de tener sentido.
 
 **Sector** es el catálogo compartido de ubicaciones/áreas de la empresa
 (`Administración`, `Sistemas`, etc.), administrado desde su propia pantalla:
@@ -198,6 +239,21 @@ se lo atendió.
 
 La relación central se mantiene: **Persona/Sector → Equipamiento → Tickets →
 solución/conocimiento**, con bitácora transversal.
+
+**Chat interno:** una **Conversación** representa un par de usuarios (par
+canónico: los dos ids se guardan siempre en el mismo orden alfabético, así
+nunca se crean dos conversaciones para las mismas dos personas) y se crea
+recién con el primer **Mensaje** — no existen conversaciones "vacías". Sin
+tabla de grupos por ahora. El transporte elegido es **polling HTTP corto**,
+no WebSocket ni SSE: a la escala de esta plataforma (algunas decenas de
+usuarios en red interna), un canal de conexiones persistentes suma
+complejidad real de mantenimiento sin una ganancia de latencia que importe
+acá, mientras que el polling reutiliza el mismo patrón `fetch()` que ya usa
+toda la SPA, no agrega infraestructura ni dependencias nuevas, y se
+recupera solo de cualquier corte de red. Los intervalos son constantes
+configurables en `app.js` (`CHAT_THREAD_POLL_MS` = 4 s con la conversación
+abierta, `CHAT_UNREAD_POLL_MS` = 15 s para el badge global), no valores
+sueltos en el código.
 
 ### Notas sobre el API para quien siga trabajando sobre esto
 
@@ -222,3 +278,17 @@ solución/conocimiento**, con bitácora transversal.
   se renombraron a `Supervisor`/`User` con una migración de datos
   (`UPDATE roles SET name = ...`) que preserva los `id` existentes, así los
   usuarios ya creados no perdieron su vínculo de rol.
+- El chat no restringe por rol quién puede escribirle a quién: los 3 roles
+  usan `/api/chat/*` igual, la única condición es ser participante de la
+  conversación (ver "Privacidad del chat"). `POST /api/chat/conversations`
+  crea la conversación si no existía (o reutiliza la existente) y manda el
+  primer mensaje en la misma transacción; de ahí en adelante se usa
+  `POST /api/chat/conversations/:id/messages`. La paginación de
+  `GET .../messages` es por cursor (`before`/`after`, mutuamente
+  excluyentes) ordenado por `createdAt` **y** `id` como desempate — con un
+  solo campo de orden, dos mensajes creados en el mismo milisegundo hacían
+  que el cursor salteara filas; se detectó en la verificación de esta ronda
+  probando una ráfaga rápida de mensajes.
+- El envío de mensajes tiene rate limit por usuario autenticado (no por IP,
+  a diferencia del login: varias personas de la misma oficina comparten
+  salida a internet) — 30 mensajes por minuto, devuelve `429` al superarlo.
