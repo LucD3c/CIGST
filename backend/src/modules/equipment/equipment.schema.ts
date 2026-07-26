@@ -15,17 +15,16 @@ export const equipmentTypeValues = [
   'Otro',
 ] as const;
 
-export const equipmentStatusValues = ['Operativo', 'En reparación', 'Bloqueado', 'Baja'] as const;
+export const equipmentStatusValues = ['Activo', 'Inactivo'] as const;
 
+// Formulario reducido a lo indispensable: tipo, un nombre/modelo que lo
+// identifique, el sector donde vive y notas opcionales. Nada de fabricante,
+// numero de serie ni activo fijo: quien carga un ticket sobre este equipo no
+// tiene por que conocer esos datos.
 export const createEquipmentSchema = z.object({
   type: z.enum(equipmentTypeValues),
-  brand: optionalText(100),
-  model: optionalText(100),
-  serial: optionalText(100),
-  asset: optionalText(100),
-  employeeId: nullableUuid,
-  location: optionalText(150),
-  warranty: optionalText(100),
+  model: z.string().trim().min(1, 'Escribí un modelo o nombre que lo identifique.').max(150),
+  sectorId: nullableUuid,
   notes: optionalText(2000),
 });
 

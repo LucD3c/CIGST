@@ -13,14 +13,14 @@ export function findMany(q?: string) {
             OR: [
               { name: { contains: q, mode: 'insensitive' as const } },
               { email: { contains: q, mode: 'insensitive' as const } },
-              { sector: { contains: q, mode: 'insensitive' as const } },
+              { sector: { name: { contains: q, mode: 'insensitive' as const } } },
               { extension: { contains: q, mode: 'insensitive' as const } },
               { code: { contains: q, mode: 'insensitive' as const } },
             ],
           }
         : {}),
     },
-    include: { equipment: { where: activeFilter } },
+    include: { sector: true },
     orderBy: { name: 'asc' },
   });
 }
@@ -29,7 +29,7 @@ export function findById(id: string) {
   return prisma.employee.findFirst({
     where: { id, ...activeFilter },
     include: {
-      equipment: { where: activeFilter },
+      sector: true,
       replacement: true,
       ticketsAsAffected: { where: activeFilter, orderBy: { createdAt: 'desc' } },
     },

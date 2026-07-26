@@ -6,8 +6,8 @@ const activeFilter = { deletedAt: null } as const;
 const include = {
   employee: true,
   requestedBy: true,
-  replacement: true,
   equipment: true,
+  sector: true,
   technician: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
 } as const;

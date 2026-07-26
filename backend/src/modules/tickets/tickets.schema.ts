@@ -24,21 +24,23 @@ export const ticketCategoryValues = [
   'Otro',
 ] as const;
 
-export const ticketImpactValues = ['Individual', 'Sector completo', 'Atención a pacientes'] as const;
-
 export const ticketContactValues = ['Interno telefónico', 'Teléfono móvil', 'Correo', 'Presencial'] as const;
 
+// "Impacto" se unificó con "Prioridad": quien pide ayuda no siempre sabe (ni
+// tiene tiempo de averiguar) si el problema afecta a todo el sector o solo a
+// su equipo; la prioridad ya captura la urgencia igual de bien y en un solo
+// campo. "Reemplazo durante la atención" se eliminó: con sector en vez de
+// persona, ese dato ya no aporta nada (el sector entero queda cubierto).
 const ticketSharedFields = {
   title: z.string().trim().min(1, 'El título es obligatorio.').max(200),
   description: z.string().trim().min(1, 'La descripción es obligatoria.').max(4000),
   equipmentId: nullableUuid,
-  replacementId: nullableUuid,
-  location: optionalText(150),
+  sectorId: nullableUuid,
   contact: z.enum(ticketContactValues).optional(),
   availability: optionalText(150),
   supportShift: optionalText(150),
   category: z.enum(ticketCategoryValues),
-  impact: z.enum(ticketImpactValues),
+  priority: z.enum(ticketPriorityValues).optional(),
 };
 
 // Alta hecha por soporte: elige explicitamente a que persona corresponde el ticket.
@@ -46,7 +48,6 @@ export const createTicketByStaffSchema = z.object({
   ...ticketSharedFields,
   employeeId: z.string().uuid('Selecciona la persona a asistir.'),
   requestedById: nullableUuid,
-  priority: z.enum(ticketPriorityValues).default('Media'),
 });
 
 // Autogestion: el empleado solo pide soporte para si mismo, no puede elegir a otra persona.

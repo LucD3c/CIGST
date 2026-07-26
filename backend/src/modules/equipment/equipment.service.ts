@@ -1,12 +1,12 @@
 import { HttpError } from '../../utils/httpError';
 import * as repo from './equipment.repository';
-import * as employeesRepo from '../employees/employees.repository';
+import * as sectorsRepo from '../sectors/sectors.repository';
 import type { CreateEquipmentInput, UpdateEquipmentInput } from './equipment.schema';
 
-async function assertEmployeeValid(employeeId: string | null | undefined) {
-  if (!employeeId) return;
-  const found = await employeesRepo.existsActive(employeeId);
-  if (!found) throw HttpError.badRequest('La persona responsable indicada no existe.');
+async function assertSectorValid(sectorId: string | null | undefined) {
+  if (!sectorId) return;
+  const found = await sectorsRepo.existsActive(sectorId);
+  if (!found) throw HttpError.badRequest('El sector indicado no existe.');
 }
 
 export async function list(q?: string) {
@@ -20,13 +20,13 @@ export async function getById(id: string) {
 }
 
 export async function create(data: CreateEquipmentInput) {
-  await assertEmployeeValid(data.employeeId ?? null);
+  await assertSectorValid(data.sectorId ?? null);
   return repo.create(data);
 }
 
 export async function update(id: string, data: UpdateEquipmentInput) {
   await getById(id);
-  if (data.employeeId !== undefined) await assertEmployeeValid(data.employeeId);
+  if (data.sectorId !== undefined) await assertSectorValid(data.sectorId);
   return repo.update(id, data);
 }
 

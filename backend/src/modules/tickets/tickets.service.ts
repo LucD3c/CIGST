@@ -1,6 +1,7 @@
 import { HttpError } from '../../utils/httpError';
 import * as repo from './tickets.repository';
 import * as employeesRepo from '../employees/employees.repository';
+import * as sectorsRepo from '../sectors/sectors.repository';
 import { prisma } from '../../db/prisma';
 import type { SessionUser } from '../auth/auth.service';
 import { ROLES } from '../../middleware/rbac.middleware';
@@ -20,6 +21,12 @@ async function assertEquipmentExists(id: string | null | undefined) {
   if (!id) return;
   const found = await prisma.equipment.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
   if (!found) throw HttpError.badRequest('El equipo relacionado indicado no existe.');
+}
+
+async function assertSectorValid(sectorId: string | null | undefined) {
+  if (!sectorId) return;
+  const found = await sectorsRepo.existsActive(sectorId);
+  if (!found) throw HttpError.badRequest('El sector indicado no existe.');
 }
 
 async function assertTechnicianExists(id: string | null | undefined) {
@@ -64,8 +71,8 @@ export async function createByStaff(user: SessionUser, data: CreateTicketByStaff
   await assertEmployeeExists(data.employeeId, 'La persona a asistir');
   const requestedById = data.requestedById ?? data.employeeId;
   await assertOptionalEmployeeExists(requestedById, 'La persona que solicito');
-  await assertOptionalEmployeeExists(data.replacementId, 'La persona de reemplazo');
   await assertEquipmentExists(data.equipmentId);
+  await assertSectorValid(data.sectorId);
 
   const affected = await employeesRepo.findById(data.employeeId);
 
@@ -74,15 +81,13 @@ export async function createByStaff(user: SessionUser, data: CreateTicketByStaff
     description: data.description,
     employeeId: data.employeeId,
     requestedById,
-    replacementId: data.replacementId ?? null,
     equipmentId: data.equipmentId ?? null,
-    location: data.location ?? affected?.sector ?? null,
+    sectorId: data.sectorId ?? affected?.sectorId ?? null,
     contact: data.contact ?? null,
     availability: data.availability ?? affected?.schedule ?? null,
     supportShift: data.supportShift ?? affected?.workShift ?? null,
     category: data.category,
-    impact: data.impact,
-    priority: data.priority,
+    priority: data.priority ?? 'Media',
     status: 'Nuevo',
     createdById: user.id,
   });
@@ -92,8 +97,8 @@ export async function createSelfService(user: SessionUser, data: CreateTicketSel
   if (!user.employeeId) {
     throw HttpError.badRequest('Tu usuario no está vinculado a una persona; pedile a Sistemas que lo asocie.');
   }
-  await assertOptionalEmployeeExists(data.replacementId, 'La persona de reemplazo');
   await assertEquipmentExists(data.equipmentId);
+  await assertSectorValid(data.sectorId);
 
   const affected = await employeesRepo.findById(user.employeeId);
 
@@ -102,15 +107,13 @@ export async function createSelfService(user: SessionUser, data: CreateTicketSel
     description: data.description,
     employeeId: user.employeeId,
     requestedById: user.employeeId,
-    replacementId: data.replacementId ?? null,
     equipmentId: data.equipmentId ?? null,
-    location: data.location ?? affected?.sector ?? null,
+    sectorId: data.sectorId ?? affected?.sectorId ?? null,
     contact: data.contact ?? null,
     availability: data.availability ?? affected?.schedule ?? null,
     supportShift: data.supportShift ?? affected?.workShift ?? null,
     category: data.category,
-    impact: data.impact,
-    priority: 'Media',
+    priority: data.priority ?? 'Media',
     status: 'Nuevo',
     createdById: user.id,
   });

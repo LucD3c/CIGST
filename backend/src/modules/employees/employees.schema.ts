@@ -9,7 +9,7 @@ export const createEmployeeSchema = z.object({
   email: z.union([z.string().trim().email(), z.literal('')]).optional().transform((v) => (v === '' ? undefined : v)),
   phone: optionalText(50),
   extension: optionalText(20),
-  sector: optionalText(100),
+  sectorId: nullableUuid,
   position: optionalText(100),
   workShift: optionalText(50),
   schedule: optionalText(100),
