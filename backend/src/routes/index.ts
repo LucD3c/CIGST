@@ -7,6 +7,7 @@ import { ticketsRouter } from '../modules/tickets/tickets.routes';
 import { logbookRouter } from '../modules/logbook/logbook.routes';
 import { sectorsRouter } from '../modules/sectors/sectors.routes';
 import { schedulesRouter } from '../modules/schedules/schedules.routes';
+import { chatRouter } from '../modules/chat/chat.routes';
 
 export const apiRouter = Router();
 
@@ -20,3 +21,4 @@ apiRouter.use('/tickets', ticketsRouter);
 apiRouter.use('/logbook', logbookRouter);
 apiRouter.use('/sectors', sectorsRouter);
 apiRouter.use('/schedules', schedulesRouter);
+apiRouter.use('/chat', chatRouter);
