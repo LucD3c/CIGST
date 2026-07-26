@@ -39,6 +39,7 @@ function apiErrorMessage(err) {
 function handleApiError(err) {
   if (err?.status === 401) {
     session = false; currentUser = null;
+    stopChatUnreadPolling(); stopChatThreadPolling();
     loginView();
     toast('Tu sesión expiró. Iniciá sesión nuevamente.');
     return;
@@ -51,6 +52,16 @@ let store = { employees: [], equipment: [], tickets: [], logbook: [], users: [],
 let currentUser = null;
 let session = false;
 let currentView = 'dashboard';
+
+/* ---------- Chat interno: estado + intervalos de polling (constantes, no numeros sueltos) ---------- */
+const CHAT_THREAD_POLL_MS = 4000;
+const CHAT_UNREAD_POLL_MS = 15000;
+let chatConversations = [];
+let activeChatConversationId = null;
+let chatMessages = [];
+let chatUnreadCount = 0;
+let chatThreadPollHandle = null;
+let chatUnreadPollHandle = null;
 
 /* ---------- Normalizadores (API -> forma que usa la interfaz) ---------- */
 function normalizeEmployee(e) {
@@ -113,6 +124,8 @@ function formatDateTime(iso) {
 function applySessionUser(user) {
   currentUser = { id: user.id, name: user.name, role: user.role, employeeId: user.employeeId || '', initials: user.name.split(' ').map(x => x[0]).slice(0, 2).join('') };
   session = true;
+  chatConversations = []; activeChatConversationId = null; chatMessages = []; chatUnreadCount = 0;
+  startChatUnreadPolling();
   const ctx = user.employee;
   if (ctx) {
     store.employees = [{ id: ctx.id, code: '', name: ctx.name, document: '—', email: '', phone: '', extension: ctx.extension || '', sectorId: ctx.sectorId || '', sectorName: ctx.sectorName || '', position: '', status: 'Activo', workShift: ctx.workShift || '', schedule: ctx.schedule || '', replacement: '', replacementInfo: null, notes: '', sectorEquipment: [] }];
@@ -183,15 +196,15 @@ const employee = id => store.employees.find(x => x.id === id);
 const equipment = id => store.equipment.find(x => x.id === id);
 const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
-const navItems = [ ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipamiento'], ['sectors','◫','Sectores'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'] ];
+const navItems = [ ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipamiento'], ['sectors','◫','Sectores'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
 const isAdmin = () => currentUser?.role === 'Administrador';
 const isSupervisor = () => currentUser?.role === 'Supervisor';
 const isStaff = () => currentUser?.role !== 'User';
 
 /* ---------- Vistas ---------- */
 function loginView(){app.innerHTML=`<main class="login-page"><section class="login-card"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><h1>Centro de Soporte</h1><p>Ingresá con las credenciales proporcionadas por Sistemas.</p><form id="login-form"><div class="field"><label for="username">Usuario</label><input id="username" name="username" required autocomplete="username" autofocus /></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" required autocomplete="current-password" /></div><div class="login-actions"><label class="remember"><input type="checkbox" checked /> Recordarme</label><button class="btn btn-primary" type="submit">Iniciar sesión</button></div></form></section></main>`;$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const submitBtn=e.currentTarget.querySelector('button[type=submit]');submitBtn.disabled=true;try{const {user}=await api('/auth/login',{method:'POST',body:{username:form.get('username'),password:form.get('password')}});applySessionUser(user);await render();}catch(err){toast(apiErrorMessage(err));}finally{submitBtn.disabled=false;}});}
-function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors']);const administracion=byId(['logbook','users']);const staffNav=`<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><nav class="nav">${isStaff()?staffNav:`<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}`}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;render();});$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
-const nav=([id,icon,label])=>`<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}</button>`;
+function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}`;app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;render();});$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;stopChatUnreadPolling();stopChatThreadPolling();chatConversations=[];activeChatConversationId=null;chatMessages=[];chatUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
+const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span class="nav-badge">${chatUnreadCount>99?'99+':chatUnreadCount}</span>`:'';return `<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}${badge}</button>`;};
 function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape')closeModal();}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
 function dashboard(){const active=store.tickets.filter(t=>!['Resuelto','Cerrado','Cancelado'].includes(t.status));return page('Centro de operaciones','Visión general del soporte técnico.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)+`<section class="metrics"><div class="metric"><div class="metric-label">Abiertos <span>◈</span></div><div class="metric-value">${active.length}</div><div class="metric-meta">requieren seguimiento</div></div><div class="metric urgent"><div class="metric-label">Urgentes <span>!</span></div><div class="metric-value">${store.tickets.filter(t=>t.priority==='Crítica').length}</div><div class="metric-meta">prioridad crítica</div></div><div class="metric live"><div class="metric-label">En proceso <span>↗</span></div><div class="metric-value">${store.tickets.filter(t=>t.status==='En proceso').length}</div><div class="metric-meta">con técnico asignado</div></div><div class="metric"><div class="metric-label">Esperando <span>◷</span></div><div class="metric-value">${store.tickets.filter(t=>t.status.startsWith('Esperando')).length}</div><div class="metric-meta">usuario o proveedor</div></div><div class="metric"><div class="metric-label">Resueltos <span>✓</span></div><div class="metric-value">${store.tickets.filter(t=>['Resuelto','Cerrado'].includes(t.status)).length}</div><div class="metric-meta">histórico registrado</div></div></section><section class="grid"><div class="panel"><div class="panel-head"><h2>Tickets que requieren atención</h2><a data-view="tickets">Ver todos</a></div>${ticketsTable(active)}</div><div class="panel"><div class="panel-head"><h2>Actividad reciente</h2>${isAdmin()?'<a data-view="logbook">Bitácora</a>':''}</div><div class="activity">${store.activity.length?store.activity.map(activity).join(''):'<div class="empty">Todavía no hay actividad registrada.</div>'}</div></div></section><section class="two-panels"><div class="panel"><div class="panel-head"><h2>Eventos importantes</h2>${isAdmin()?'<a data-view="logbook">Ver bitácora</a>':''}</div>${isAdmin()?(store.logbook.length?store.logbook.slice(0,3).map(e=>`<div class="event"><strong>${esc(e.title)}</strong><span>${esc(e.category)} · ${e.date} · ${esc(e.author)}</span></div>`).join(''):'<div class="empty">No hay eventos técnicos registrados.</div>'):'<div class="empty">Solo visible para Administrador.</div>'}</div><div class="panel"><div class="panel-head"><h2>Recordatorios</h2></div><div class="empty">No hay recordatorios pendientes.</div></div></section>`}
@@ -368,18 +381,216 @@ function toast(message){const el=document.createElement('div');el.className='toa
 function wireRecords(root=document){root.querySelectorAll('[data-employee]').forEach(x=>x.onclick=()=>{currentView='employee-detail';render(x.dataset.employee);});root.querySelectorAll('[data-equipment]').forEach(x=>x.onclick=()=>{currentView='equipment-detail';render(x.dataset.equipment);});root.querySelectorAll('[data-ticket]').forEach(x=>x.onclick=()=>{const ticket=store.tickets.find(y=>y.id===x.dataset.ticket);if(ticket)ticketDetail(ticket);});root.querySelectorAll('[data-user]').forEach(x=>x.onclick=()=>openUserEdit(x.dataset.user));root.querySelectorAll('[data-quick-menu]').forEach(x=>x.onclick=e=>{e.stopPropagation();openQuickMenu(x,x.dataset.quickMenu);});root.querySelectorAll('[data-sector]').forEach(x=>x.onclick=()=>{currentView='sector-detail';render(x.dataset.sector);});root.querySelectorAll('[data-schedule]').forEach(x=>x.onclick=()=>openScheduleEdit(x.dataset.schedule));root.querySelectorAll('[data-edit-sector]').forEach(x=>x.onclick=()=>openSectorEdit(x.dataset.editSector));}
 function wirePage(){document.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>openNew(x.dataset.action.replace('new-','')));document.querySelectorAll('.filter').forEach(input=>input.oninput=()=>{const q=input.value.toLowerCase();const kind=input.dataset.filter;const rows=store[kind].filter(x=>Object.values(x).join(' ').toLowerCase().includes(q));$(`#${kind}-table`).innerHTML=kind==='tickets'?ticketsTable(rows):kind==='employees'?employeesTable(rows):equipmentTable(rows);wireRecords($(`#${kind}-table`));});wireRecords();}
 
+/* ---------- Chat interno (1 a 1) ---------- */
+function chatConvRowHtml(c){
+  const previewText=c.lastMessage?(c.lastMessage.mine?'Vos: ':'')+c.lastMessage.body:'Sin mensajes todavía.';
+  const badge=c.unreadCount>0?`<span class="chat-conv-badge">${c.unreadCount>99?'99+':c.unreadCount}</span>`:'';
+  return `<div class="chat-conv ${c.id===activeChatConversationId?'active':''}" data-conversation="${c.id}"><div class="chat-conv-row"><strong>${esc(c.otherUser.name)}</strong>${badge}</div><div class="chat-conv-preview">${esc(previewText)}</div></div>`;
+}
+async function chatView(){
+  const {conversations}=await api('/chat/conversations');
+  chatConversations=conversations;
+  const list=chatConversations.length?chatConversations.map(chatConvRowHtml).join(''):'<div class="empty">Todavía no tenés conversaciones.</div>';
+  return page('Mensajes','Chat interno entre usuarios de la plataforma, sin salir de CIGST.',`<button class="btn btn-primary" type="button" data-chat-new>+ Nueva conversación</button>`)
+    +`<div class="chat-layout"><div class="panel chat-list">${list}</div><div class="panel chat-thread" id="chat-thread"><div class="empty">Elegí una conversación para ver los mensajes.</div></div></div>`;
+}
+function wireChatView(){
+  document.querySelectorAll('[data-conversation]').forEach(el=>el.onclick=()=>openChatThread(el.dataset.conversation));
+  const newBtn=document.querySelector('[data-chat-new]');
+  if(newBtn)newBtn.onclick=openNewChatPicker;
+  if(activeChatConversationId&&chatConversations.some(c=>c.id===activeChatConversationId)){
+    openChatThread(activeChatConversationId);
+  }
+}
+async function openNewChatPicker(){
+  let users;
+  try{({users}=await api('/chat/directory'));}catch(err){toast(apiErrorMessage(err));return;}
+  const root=$('#modal-root');
+  const rows=users.map(u=>`<div class="result" data-pick-user="${u.id}"><div class="result-icon">◉</div><div><strong>${esc(u.name)}</strong><span>${esc(u.role)}</span></div></div>`).join('')||'<div class="empty">No hay otros usuarios activos.</div>';
+  root.innerHTML=`<div class="modal-backdrop"><section class="modal"><div class="modal-head"><h2>Nueva conversación</h2><button class="close" type="button">×</button></div><div class="modal-body">${rows}</div></section></div>`;
+  $('.close').onclick=closeModal;
+  root.querySelectorAll('[data-pick-user]').forEach(el=>el.onclick=()=>{
+    const recipientId=el.dataset.pickUser;
+    const recipient=users.find(u=>u.id===recipientId);
+    closeModal();
+    const existing=chatConversations.find(c=>c.otherUser.id===recipientId);
+    if(existing){openChatThread(existing.id);return;}
+    openNewThreadComposer(recipientId,recipient?.name||'Usuario');
+  });
+}
+function chatBubble(m){
+  return `<div class="chat-bubble ${m.mine?'mine':''}"><div class="chat-bubble-text">${esc(m.body)}</div><div class="chat-bubble-time">${formatDateTime(m.createdAt)}</div></div>`;
+}
+function renderChatMessagesInner(hasMore){
+  return (hasMore?'<button type="button" class="btn btn-ghost chat-load-more" id="chat-load-more">Cargar mensajes anteriores</button>':'')+chatMessages.map(chatBubble).join('');
+}
+function renderChatThreadShell(otherName,hasMore){
+  return `<div class="chat-thread-head"><strong>${esc(otherName)}</strong></div>`
+    +`<div class="chat-messages" id="chat-messages">${renderChatMessagesInner(hasMore)}</div>`
+    +`<form class="chat-composer" id="chat-composer"><textarea name="body" maxlength="2000" placeholder="Escribí un mensaje… (Enter para enviar, Shift+Enter para saltear línea)" required></textarea><button class="btn btn-primary" type="submit">Enviar</button></form>`;
+}
+function scrollChatToBottom(){
+  const container=document.getElementById('chat-messages');
+  if(container)container.scrollTop=container.scrollHeight;
+}
+function appendChatMessage(m){
+  chatMessages.push(m);
+  const container=document.getElementById('chat-messages');
+  if(container){container.insertAdjacentHTML('beforeend',chatBubble(m));scrollChatToBottom();}
+}
+async function openChatThread(conversationId){
+  activeChatConversationId=conversationId;
+  stopChatThreadPolling();
+  document.querySelectorAll('[data-conversation]').forEach(el=>el.classList.toggle('active',el.dataset.conversation===conversationId));
+  const pane=document.getElementById('chat-thread');
+  if(!pane)return;
+  pane.innerHTML='<div class="empty">Cargando…</div>';
+  const conv=chatConversations.find(c=>c.id===conversationId);
+  let messages,hasMore;
+  try{({messages,hasMore}=await api(`/chat/conversations/${conversationId}/messages`));}
+  catch(err){toast(apiErrorMessage(err));pane.innerHTML='<div class="empty">No se pudo cargar la conversación.</div>';return;}
+  chatMessages=messages;
+  pane.innerHTML=renderChatThreadShell(conv?.otherUser?.name||'Conversación',hasMore);
+  scrollChatToBottom();
+  wireChatComposer({conversationId});
+  wireChatLoadMore(conversationId,hasMore);
+  try{await api(`/chat/conversations/${conversationId}/read`,{method:'POST'});}catch{ /* si falla, se reintenta en el proximo poll */ }
+  if(conv)conv.unreadCount=0;
+  refreshChatUnreadBadge();
+  startChatThreadPolling(conversationId);
+}
+function openNewThreadComposer(recipientId,recipientName){
+  activeChatConversationId=null;
+  chatMessages=[];
+  stopChatThreadPolling();
+  document.querySelectorAll('[data-conversation]').forEach(el=>el.classList.remove('active'));
+  const pane=document.getElementById('chat-thread');
+  if(!pane)return;
+  pane.innerHTML=renderChatThreadShell(recipientName,false);
+  wireChatComposer({pendingRecipientId:recipientId});
+}
+function wireChatLoadMore(conversationId,hasMore){
+  const btn=document.getElementById('chat-load-more');
+  if(!btn)return;
+  if(!hasMore){btn.remove();return;}
+  btn.onclick=async()=>{
+    const oldestId=chatMessages[0]?.id;
+    if(!oldestId)return;
+    btn.disabled=true;
+    try{
+      const {messages,hasMore:more}=await api(`/chat/conversations/${conversationId}/messages?before=${oldestId}`);
+      const container=document.getElementById('chat-messages');
+      const prevScrollHeight=container.scrollHeight;
+      chatMessages=[...messages,...chatMessages];
+      container.innerHTML=renderChatMessagesInner(more);
+      wireChatLoadMore(conversationId,more);
+      container.scrollTop=container.scrollHeight-prevScrollHeight;
+    }catch(err){toast(apiErrorMessage(err));btn.disabled=false;}
+  };
+}
+function wireChatComposer(target){
+  const form=document.getElementById('chat-composer');
+  if(!form)return;
+  const textarea=form.querySelector('textarea[name=body]');
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const body=textarea.value.trim();
+    if(!body)return;
+    const submitBtn=form.querySelector('button[type=submit]');
+    submitBtn.disabled=true;
+    try{
+      if(target.conversationId){
+        const {message}=await api(`/chat/conversations/${target.conversationId}/messages`,{method:'POST',body:{body}});
+        appendChatMessage(message);
+      }else{
+        const {conversation,message}=await api('/chat/conversations',{method:'POST',body:{recipientId:target.pendingRecipientId,body}});
+        activeChatConversationId=conversation.id;
+        // Reasigna el target capturado por este mismo closure: el segundo
+        // mensaje en adelante ya usa el conversationId real, sin re-wirear el form.
+        target={conversationId:conversation.id};
+        appendChatMessage(message);
+        startChatThreadPolling(conversation.id);
+        refreshChatConversationList();
+      }
+      textarea.value='';
+    }catch(err){toast(apiErrorMessage(err));}
+    finally{submitBtn.disabled=false;}
+  };
+  textarea.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}
+  });
+}
+async function refreshChatConversationList(){
+  try{
+    const {conversations}=await api('/chat/conversations');
+    chatConversations=conversations;
+    const listEl=document.querySelector('.chat-list');
+    if(listEl){
+      listEl.innerHTML=chatConversations.length?chatConversations.map(chatConvRowHtml).join(''):'<div class="empty">Todavía no tenés conversaciones.</div>';
+      document.querySelectorAll('[data-conversation]').forEach(el=>el.onclick=()=>openChatThread(el.dataset.conversation));
+    }
+  }catch{ /* silencioso: no interrumpe la conversacion abierta */ }
+}
+function startChatThreadPolling(conversationId){
+  stopChatThreadPolling();
+  chatThreadPollHandle=setInterval(async()=>{
+    const lastId=chatMessages[chatMessages.length-1]?.id;
+    if(!lastId)return;
+    try{
+      const {messages}=await api(`/chat/conversations/${conversationId}/messages?after=${lastId}`);
+      if(messages.length){
+        messages.forEach(appendChatMessage);
+        try{await api(`/chat/conversations/${conversationId}/read`,{method:'POST'});}catch{ /* se reintenta en el proximo poll */ }
+      }
+    }catch{ /* un poll fallido no debe interrumpir la conversacion */ }
+  },CHAT_THREAD_POLL_MS);
+}
+function stopChatThreadPolling(){
+  if(chatThreadPollHandle){clearInterval(chatThreadPollHandle);chatThreadPollHandle=null;}
+}
+async function refreshChatUnreadBadge(){
+  try{
+    const {count}=await api('/chat/unread-count');
+    chatUnreadCount=count;
+    document.querySelectorAll('.nav-item[data-view="chat"]').forEach(el=>{
+      const existing=el.querySelector('.nav-badge');
+      if(count>0){
+        const text=count>99?'99+':String(count);
+        if(existing)existing.textContent=text;
+        else el.insertAdjacentHTML('beforeend',`<span class="nav-badge">${text}</span>`);
+      }else if(existing){existing.remove();}
+    });
+  }catch{ /* un poll fallido no debe molestar al usuario */ }
+}
+function startChatUnreadPolling(){
+  stopChatUnreadPolling();
+  refreshChatUnreadBadge();
+  chatUnreadPollHandle=setInterval(refreshChatUnreadBadge,CHAT_UNREAD_POLL_MS);
+}
+function stopChatUnreadPolling(){
+  if(chatUnreadPollHandle){clearInterval(chatUnreadPollHandle);chatUnreadPollHandle=null;}
+}
+
 /* ---------- Router ---------- */
 async function render(id){
   if(!session){loginView();return;}
+  stopChatThreadPolling();
+
   if(!isStaff()){
-    currentView='employee-portal';
-    try{await loadEmployeeData();}catch(err){handleApiError(err);return;}
-    shell(employeePortal());wirePage();return;
+    if(currentView!=='chat')currentView='employee-portal';
+    let content;
+    try{
+      if(currentView==='chat'){content=await chatView();}
+      else{await loadEmployeeData();content=employeePortal();}
+    }catch(err){handleApiError(err);return;}
+    shell(content);wirePage();
+    if(currentView==='chat')wireChatView();
+    return;
   }
   if(currentView==='users'&&!isAdmin())currentView='dashboard';
   if(currentView==='logbook'&&!isAdmin())currentView='dashboard';
   try{
-    await loadStaffData();
+    if(currentView!=='chat')await loadStaffData();
     if(currentView==='users')await loadUsers();
   }catch(err){handleApiError(err);return;}
   let content;
@@ -390,6 +601,7 @@ async function render(id){
     case 'sectors':content=sectorsView();break;
     case 'logbook':content=logbookView();break;
     case 'users':content=usersView();break;
+    case 'chat':content=await chatView();break;
     case 'employee-detail':{
       let detail;
       try{const res=await api(`/employees/${id}`);detail=normalizeEmployee(res.employee);}
@@ -408,6 +620,7 @@ async function render(id){
     default:content=dashboard();
   }
   shell(content);wirePage();
+  if(currentView==='chat')wireChatView();
 }
 
 (async function bootstrap(){
