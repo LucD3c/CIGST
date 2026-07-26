@@ -86,6 +86,21 @@ model Sector {
   @@map("sectors")
 }
 
+model Schedule {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  startTime String    @map("start_time")
+  endTime   String    @map("end_time")
+  status    String    @default("Activo")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  tickets Ticket[]
+
+  @@map("schedules")
+}
+
 model Employee {
   id           String    @id @default(uuid())
   code         String    @unique
@@ -148,9 +163,7 @@ model Ticket {
   requestedById String?   @map("requested_by_id")
   equipmentId   String?   @map("equipment_id")
   sectorId      String?   @map("sector_id")
-  contact       String?
-  availability  String?
-  supportShift  String?   @map("support_shift")
+  scheduleId    String?   @map("schedule_id")
   category      String    @default("General")
   technicianId  String?   @map("technician_id")
   status        String    @default("Nuevo")
@@ -166,6 +179,7 @@ model Ticket {
   requestedBy Employee?  @relation("TicketRequester", fields: [requestedById], references: [id], onDelete: SetNull)
   equipment   Equipment? @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
   sector      Sector?    @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+  schedule    Schedule?  @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   technician  User?      @relation("TicketTechnician", fields: [technicianId], references: [id], onDelete: SetNull)
   createdBy   User?      @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -175,6 +189,7 @@ model Ticket {
   @@index([requestedById])
   @@index([equipmentId])
   @@index([sectorId])
+  @@index([scheduleId])
   @@index([technicianId])
   @@index([createdById])
   @@index([status])

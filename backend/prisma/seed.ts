@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 12;
 
-const ROLE_NAMES = ['Administrador', 'Técnico', 'Empleado'];
+const ROLE_NAMES = ['Administrador', 'Supervisor', 'User'];
 
 async function main() {
   const roles = new Map<string, string>();
@@ -38,6 +38,17 @@ async function main() {
   for (const name of sectorNames) {
     const sector = await prisma.sector.upsert({ where: { name }, update: {}, create: { name } });
     sectors.set(name, sector.id);
+  }
+
+  // Turnos de soporte de referencia.
+  const scheduleDefs = [
+    { name: 'Mañana', startTime: '07:30', endTime: '14:30' },
+    { name: 'Tarde', startTime: '14:30', endTime: '21:00' },
+  ];
+  const schedules = new Map<string, string>();
+  for (const def of scheduleDefs) {
+    const schedule = await prisma.schedule.upsert({ where: { name: def.name }, update: {}, create: def });
+    schedules.set(def.name, schedule.id);
   }
 
   // Caso de referencia (equivalente al que traia la version local en localStorage)
@@ -77,12 +88,12 @@ async function main() {
         name: referenceEmployee.name,
         username: 'mgonzalez',
         passwordHash: await bcrypt.hash('empleado123', SALT_ROUNDS),
-        roleId: roles.get('Empleado')!,
+        roleId: roles.get('User')!,
         employeeId: referenceEmployee.id,
         status: 'Activo',
       },
     });
-    console.log('Usuario empleado de referencia creado: mgonzalez / empleado123');
+    console.log('Usuario de referencia creado: mgonzalez / empleado123');
   }
 
   await prisma.ticket.upsert({
@@ -96,9 +107,7 @@ async function main() {
       requestedById: referenceEmployee.id,
       equipmentId: referenceEquipment.id,
       sectorId: referenceEmployee.sectorId,
-      contact: 'Interno telefónico',
-      availability: referenceEmployee.schedule,
-      supportShift: referenceEmployee.workShift,
+      scheduleId: schedules.get('Mañana'),
       category: 'Otro',
       status: 'Nuevo',
       priority: 'Media',
