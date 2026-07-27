@@ -38,6 +38,7 @@ model User {
   status       String    @default("Activo")
   lastAccessAt DateTime? @map("last_access_at")
   loginCount   Int       @default(0) @map("login_count")
+  changeLog    String?   @map("change_log")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
@@ -52,11 +53,19 @@ model User {
   conversationsAsUserA Conversation[] @relation("ConversationUserA")
   conversationsAsUserB Conversation[] @relation("ConversationUserB")
   chatMessages         Message[]
+  notifications        Notification[]
+  chatGroupsCreated    ChatGroup[]       @relation("ChatGroupCreator")
+  chatGroupMemberships ChatGroupMember[]
 
   @@index([roleId])
   @@index([employeeId])
   @@map("users")
 }
+
+// Historial de cambios administrativos (User.changeLog, Employee.changeLog,
+// Equipment.changeLog): texto plano que el service antepone en cada edicion
+// ("26/07/2026 21:14 — Sector: «A» → «B»"). Visible solo para quien puede
+// ver la entidad; lo escribe unicamente el backend, nunca el cliente.
 
 model Session {
   id        String    @id @default(uuid())
@@ -119,6 +128,7 @@ model Employee {
   schedule     String?
   replacementId String?  @map("replacement_id")
   notes        String?
+  changeLog    String?   @map("change_log")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
@@ -143,7 +153,9 @@ model Equipment {
   model     String?
   status    String    @default("Activo")
   sectorId  String?   @map("sector_id")
-  notes     String?
+  // Antes "notes"/Observaciones: renombrado a Cambios — historial automatico
+  // de ediciones del equipo (la migracion renombra la columna, no pierde datos).
+  changeLog String?   @map("change_log")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -222,20 +234,76 @@ model Conversation {
   @@map("chat_conversations")
 }
 
+// Un mensaje pertenece a una conversacion 1 a 1 (conversationId) O a un
+// grupo (groupId) — exactamente uno de los dos, garantizado por el service.
 model Message {
   id             String    @id @default(uuid())
-  conversationId String    @map("conversation_id")
+  conversationId String?   @map("conversation_id")
+  groupId        String?   @map("group_id")
   senderId       String    @map("sender_id")
   body           String
   createdAt      DateTime  @default(now()) @map("created_at")
   readAt         DateTime? @map("read_at")
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  group        ChatGroup?    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender       User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+  @@index([groupId, createdAt])
   @@index([senderId])
   @@map("chat_messages")
+}
+
+// Grupos de chat: los crea el Administrador y elige quienes participan.
+// En los grupos el "leido" es por miembro (lastReadAt), no por mensaje.
+model ChatGroup {
+  id          String   @id @default(uuid())
+  name        String
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+
+  createdBy User?             @relation("ChatGroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members   ChatGroupMember[]
+  messages  Message[]
+
+  @@index([createdById])
+  @@map("chat_groups")
+}
+
+model ChatGroupMember {
+  id         String    @id @default(uuid())
+  groupId    String    @map("group_id")
+  userId     String    @map("user_id")
+  lastReadAt DateTime? @map("last_read_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@map("chat_group_members")
+}
+
+// Notificaciones internas (campanita): las genera el backend ante eventos
+// (ticket nuevo, cambio de estado, asignacion, alta en un grupo) y llevan a
+// un destino dentro de la plataforma (targetType + targetId).
+model Notification {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  title      String
+  targetType String    @map("target_type")
+  targetId   String?   @map("target_id")
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
 }
 
 model LogbookEntry {
