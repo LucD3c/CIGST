@@ -133,7 +133,7 @@ export function findActiveUser(id: string) {
 }
 
 export function findMessageById(id: string) {
-  return prisma.message.findUnique({ where: { id }, select: { id: true, conversationId: true } });
+  return prisma.message.findUnique({ where: { id }, select: { id: true, conversationId: true, groupId: true } });
 }
 
 export function findDirectory(excludingUserId: string) {
@@ -142,4 +142,120 @@ export function findDirectory(excludingUserId: string) {
     select: { id: true, name: true, role: { select: { name: true } } },
     orderBy: { name: 'asc' },
   });
+}
+
+/* ---------- Grupos ---------- */
+
+const groupInclude = {
+  members: { include: { user: { select: { id: true, name: true, role: { select: { name: true } } } } } },
+} as const;
+
+export function createGroup(name: string, creatorId: string, memberIds: string[]) {
+  const unique = [...new Set([creatorId, ...memberIds])];
+  return prisma.chatGroup.create({
+    data: {
+      name,
+      createdById: creatorId,
+      members: { create: unique.map((userId) => ({ userId })) },
+    },
+    include: groupInclude,
+  });
+}
+
+export function findGroupById(id: string) {
+  return prisma.chatGroup.findUnique({ where: { id }, include: groupInclude });
+}
+
+export function findGroupsForUser(userId: string) {
+  return prisma.chatGroup.findMany({
+    where: { members: { some: { userId } } },
+    orderBy: { lastMessageAt: 'desc' },
+    include: {
+      ...groupInclude,
+      messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { sender: { select: { id: true, name: true } } } },
+    },
+  });
+}
+
+// Reemplaza la lista de miembros por la nueva (los que salen pierden acceso,
+// los que entran arrancan con lastReadAt vacio) y renombra si corresponde.
+export function updateGroup(id: string, data: { name?: string; memberIds?: string[] }) {
+  return prisma.$transaction(async (tx) => {
+    if (data.name !== undefined) {
+      await tx.chatGroup.update({ where: { id }, data: { name: data.name } });
+    }
+    if (data.memberIds !== undefined) {
+      const unique = [...new Set(data.memberIds)];
+      await tx.chatGroupMember.deleteMany({ where: { groupId: id, userId: { notIn: unique } } });
+      const existing = await tx.chatGroupMember.findMany({ where: { groupId: id }, select: { userId: true } });
+      const existingIds = new Set(existing.map((m) => m.userId));
+      const toAdd = unique.filter((uid) => !existingIds.has(uid));
+      if (toAdd.length) {
+        await tx.chatGroupMember.createMany({ data: toAdd.map((userId) => ({ groupId: id, userId })) });
+      }
+    }
+    return tx.chatGroup.findUnique({ where: { id }, include: groupInclude });
+  });
+}
+
+export function deleteGroup(id: string) {
+  return prisma.chatGroup.delete({ where: { id } });
+}
+
+export function findGroupMember(groupId: string, userId: string) {
+  return prisma.chatGroupMember.findUnique({ where: { groupId_userId: { groupId, userId } } });
+}
+
+export async function sendGroupMessage(groupId: string, senderId: string, body: string) {
+  return prisma.$transaction(async (tx) => {
+    const message = await tx.message.create({
+      data: { groupId, senderId, body },
+      include: { sender: { select: { id: true, name: true } } },
+    });
+    await tx.chatGroup.update({ where: { id: groupId }, data: { lastMessageAt: message.createdAt } });
+    return message;
+  });
+}
+
+export function findGroupMessagesPage(groupId: string, before: string | undefined, limit: number) {
+  return prisma.message.findMany({
+    where: { groupId },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit,
+    include: { sender: { select: { id: true, name: true } } },
+    ...(before ? { cursor: { id: before }, skip: 1 } : {}),
+  });
+}
+
+export function findGroupMessagesAfter(groupId: string, afterId: string, limit: number) {
+  return prisma.message.findMany({
+    where: { groupId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    cursor: { id: afterId },
+    skip: 1,
+    take: limit,
+    include: { sender: { select: { id: true, name: true } } },
+  });
+}
+
+export function markGroupRead(groupId: string, userId: string) {
+  return prisma.chatGroupMember.update({
+    where: { groupId_userId: { groupId, userId } },
+    data: { lastReadAt: new Date() },
+  });
+}
+
+// Mensajes de OTROS posteriores a mi ultima lectura, por grupo.
+export function countGroupUnread(groupId: string, userId: string, lastReadAt: Date | null) {
+  return prisma.message.count({
+    where: {
+      groupId,
+      senderId: { not: userId },
+      ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
+    },
+  });
+}
+
+export function findMembershipsForUser(userId: string) {
+  return prisma.chatGroupMember.findMany({ where: { userId }, select: { groupId: true, lastReadAt: true } });
 }

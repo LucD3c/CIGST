@@ -1,5 +1,6 @@
 import { HttpError } from '../../utils/httpError';
 import * as repo from './chat.repository';
+import * as notifications from '../notifications/notifications.service';
 
 const DEFAULT_PAGE_SIZE = 30;
 const POLL_PAGE_SIZE = 50;
@@ -29,7 +30,7 @@ async function getConversationOrThrow(conversationId: string) {
 }
 
 function shapeMessage(currentUserId: string) {
-  return (m: { id: string; conversationId: string; senderId: string; body: string; createdAt: Date; readAt: Date | null }) => ({
+  return (m: { id: string; conversationId: string | null; senderId: string; body: string; createdAt: Date; readAt: Date | null }) => ({
     id: m.id,
     conversationId: m.conversationId,
     senderId: m.senderId,
@@ -131,11 +132,155 @@ export async function markRead(currentUserId: string, conversationId: string) {
   await repo.markConversationRead(conversationId, currentUserId);
 }
 
+// No leidos totales: 1 a 1 + grupos (para el badge de "Mensajes").
 export async function unreadTotal(currentUserId: string) {
-  return repo.countUnreadTotal(currentUserId);
+  const direct = await repo.countUnreadTotal(currentUserId);
+  const memberships = await repo.findMembershipsForUser(currentUserId);
+  const groupCounts = await Promise.all(
+    memberships.map((m) => repo.countGroupUnread(m.groupId, currentUserId, m.lastReadAt)),
+  );
+  return direct + groupCounts.reduce((a, b) => a + b, 0);
 }
 
 export async function directory(currentUserId: string) {
   const users = await repo.findDirectory(currentUserId);
   return users.map((u) => ({ id: u.id, name: u.name, role: u.role.name }));
+}
+
+/* ---------- Grupos ---------- */
+
+async function getGroupOrThrow(groupId: string) {
+  const group = await repo.findGroupById(groupId);
+  if (!group) throw HttpError.notFound('Grupo no encontrado.');
+  return group;
+}
+
+// La membresia es la unica llave de acceso a un grupo. El Administrador que
+// no es miembro tampoco lee: mismos principios de privacidad que el 1 a 1
+// (el admin administra miembros, pero para leer/escribir debe estar dentro,
+// y al crear el grupo queda incluido automaticamente).
+async function assertGroupMember(groupId: string, userId: string) {
+  const member = await repo.findGroupMember(groupId, userId);
+  if (!member) throw HttpError.forbidden('No sos miembro de este grupo.');
+  return member;
+}
+
+export async function listGroups(currentUserId: string) {
+  const groups = await repo.findGroupsForUser(currentUserId);
+  const unread = await Promise.all(
+    groups.map((g) => {
+      const me = g.members.find((m) => m.userId === currentUserId);
+      return repo.countGroupUnread(g.id, currentUserId, me?.lastReadAt ?? null);
+    }),
+  );
+  return groups.map((g, i) => ({
+    id: g.id,
+    name: g.name,
+    memberCount: g.members.length,
+    members: g.members.map((m) => ({ id: m.user.id, name: m.user.name, role: m.user.role.name })),
+    lastMessage: g.messages[0]
+      ? {
+          body: g.messages[0].body,
+          senderName: g.messages[0].sender.name,
+          createdAt: g.messages[0].createdAt,
+          mine: g.messages[0].senderId === currentUserId,
+        }
+      : null,
+    lastMessageAt: g.lastMessageAt,
+    unreadCount: unread[i],
+  }));
+}
+
+export async function createGroup(currentUserId: string, name: string, memberIds: string[]) {
+  for (const memberId of memberIds) {
+    const active = await repo.findActiveUser(memberId);
+    if (!active) throw HttpError.badRequest('Uno de los usuarios elegidos no existe o no está activo.');
+  }
+  const group = await repo.createGroup(name, currentUserId, memberIds);
+  await notifications.notify(
+    group.members.map((m) => m.userId),
+    `Te agregaron al grupo «${group.name}»`,
+    'group',
+    group.id,
+    currentUserId,
+  );
+  return group;
+}
+
+export async function updateGroup(currentUserId: string, groupId: string, data: { name?: string; memberIds?: string[] }) {
+  const existing = await getGroupOrThrow(groupId);
+  if (data.memberIds !== undefined) {
+    if (!data.memberIds.length) throw HttpError.badRequest('Un grupo necesita al menos un miembro.');
+    for (const memberId of data.memberIds) {
+      const active = await repo.findActiveUser(memberId);
+      if (!active) throw HttpError.badRequest('Uno de los usuarios elegidos no existe o no está activo.');
+    }
+  }
+  const updated = await repo.updateGroup(groupId, data);
+  if (data.memberIds !== undefined && updated) {
+    const previousIds = new Set(existing.members.map((m) => m.userId));
+    const added = updated.members.filter((m) => !previousIds.has(m.userId));
+    await notifications.notify(
+      added.map((m) => m.userId),
+      `Te agregaron al grupo «${updated.name}»`,
+      'group',
+      updated.id,
+      currentUserId,
+    );
+  }
+  return updated;
+}
+
+export async function removeGroup(groupId: string) {
+  await getGroupOrThrow(groupId);
+  await repo.deleteGroup(groupId);
+}
+
+function shapeGroupMessage(currentUserId: string) {
+  return (m: { id: string; groupId: string | null; senderId: string; body: string; createdAt: Date; sender: { id: string; name: string } }) => ({
+    id: m.id,
+    groupId: m.groupId,
+    senderId: m.senderId,
+    senderName: m.sender.name,
+    body: m.body,
+    createdAt: m.createdAt,
+    mine: m.senderId === currentUserId,
+  });
+}
+
+export async function getGroupMessages(currentUserId: string, groupId: string, before: string | undefined, limit: number | undefined) {
+  await getGroupOrThrow(groupId);
+  await assertGroupMember(groupId, currentUserId);
+  if (before) {
+    const cursor = await repo.findMessageById(before);
+    if (!cursor || cursor.groupId !== groupId) throw HttpError.badRequest('El cursor de mensajes indicado no es válido para este grupo.');
+  }
+  const pageSize = limit ?? DEFAULT_PAGE_SIZE;
+  const rows = await repo.findGroupMessagesPage(groupId, before, pageSize);
+  return {
+    messages: [...rows].reverse().map(shapeGroupMessage(currentUserId)),
+    hasMore: rows.length === pageSize,
+  };
+}
+
+export async function pollGroupMessages(currentUserId: string, groupId: string, afterId: string) {
+  await getGroupOrThrow(groupId);
+  await assertGroupMember(groupId, currentUserId);
+  const cursor = await repo.findMessageById(afterId);
+  if (!cursor || cursor.groupId !== groupId) throw HttpError.badRequest('El cursor de mensajes indicado no es válido para este grupo.');
+  const rows = await repo.findGroupMessagesAfter(groupId, afterId, POLL_PAGE_SIZE);
+  return rows.map(shapeGroupMessage(currentUserId));
+}
+
+export async function sendGroupMessage(currentUserId: string, groupId: string, body: string) {
+  await getGroupOrThrow(groupId);
+  await assertGroupMember(groupId, currentUserId);
+  const message = await repo.sendGroupMessage(groupId, currentUserId, body);
+  return shapeGroupMessage(currentUserId)(message);
+}
+
+export async function markGroupRead(currentUserId: string, groupId: string) {
+  await getGroupOrThrow(groupId);
+  await assertGroupMember(groupId, currentUserId);
+  await repo.markGroupRead(groupId, currentUserId);
 }

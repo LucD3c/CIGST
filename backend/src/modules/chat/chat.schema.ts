@@ -25,6 +25,19 @@ export const listMessagesQuerySchema = z
     message: 'No se puede combinar "before" y "after" en la misma consulta.',
   });
 
+const groupName = z.string().trim().min(1, 'El nombre del grupo es obligatorio.').max(80);
+const memberIds = z.array(z.string().uuid()).max(200);
+
+export const createGroupSchema = z.object({
+  name: groupName,
+  memberIds,
+});
+
+export const updateGroupSchema = z.object({
+  name: groupName.optional(),
+  memberIds: memberIds.optional(),
+});
+
 export type StartConversationInput = z.infer<typeof startConversationSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type ListMessagesQuery = z.infer<typeof listMessagesQuerySchema>;
