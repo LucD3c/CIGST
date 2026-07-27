@@ -2,7 +2,8 @@
 
 *Cómo se usa la plataforma en el día a día, sin tecnicismos. La versión
 completa con capturas está en [PDF](Manual-de-uso-CIGST.pdf) para imprimir o
-compartir.*
+compartir. Si todavía no la instalaste, ver antes
+[Cómo descargar](Como-descargar-CIGST.pdf) y [Cómo instalar](Como-instalar-CIGST.pdf).*
 
 ---
 
