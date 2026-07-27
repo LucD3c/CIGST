@@ -42,15 +42,14 @@ const ticketSharedFields = {
   priority: z.enum(ticketPriorityValues).optional(),
 };
 
-// Alta hecha por soporte: elige explicitamente a que persona corresponde el ticket.
-export const createTicketByStaffSchema = z.object({
+// Alta unificada: cualquier rol puede crear un ticket para cualquier persona
+// de la empresa (regla de rangos). Si no se indica persona, se usa la propia
+// (el service la resuelve y valida).
+export const createTicketSchema = z.object({
   ...ticketSharedFields,
-  employeeId: z.string().uuid('Selecciona la persona a asistir.'),
+  employeeId: nullableUuid,
   requestedById: nullableUuid,
 });
-
-// Autogestion: el empleado solo pide soporte para si mismo, no puede elegir a otra persona.
-export const createTicketSelfServiceSchema = z.object(ticketSharedFields);
 
 export const updateTicketSchema = z.object({
   status: z.enum(ticketStatusValues).optional(),
@@ -60,6 +59,5 @@ export const updateTicketSchema = z.object({
   timeSpent: optionalText(50),
 });
 
-export type CreateTicketByStaffInput = z.infer<typeof createTicketByStaffSchema>;
-export type CreateTicketSelfServiceInput = z.infer<typeof createTicketSelfServiceSchema>;
+export type CreateTicketInput = z.infer<typeof createTicketSchema>;
 export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;

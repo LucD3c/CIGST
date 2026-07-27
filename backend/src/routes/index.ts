@@ -8,6 +8,7 @@ import { logbookRouter } from '../modules/logbook/logbook.routes';
 import { sectorsRouter } from '../modules/sectors/sectors.routes';
 import { schedulesRouter } from '../modules/schedules/schedules.routes';
 import { chatRouter } from '../modules/chat/chat.routes';
+import { notificationsRouter } from '../modules/notifications/notifications.routes';
 
 export const apiRouter = Router();
 
@@ -22,3 +23,4 @@ apiRouter.use('/logbook', logbookRouter);
 apiRouter.use('/sectors', sectorsRouter);
 apiRouter.use('/schedules', schedulesRouter);
 apiRouter.use('/chat', chatRouter);
+apiRouter.use('/notifications', notificationsRouter);
