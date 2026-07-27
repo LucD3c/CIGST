@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nullableUuid, optionalText } from '../../utils/commonSchemas';
+import { nullableUuid } from '../../utils/commonSchemas';
 
 export const equipmentTypeValues = [
   'PC',
@@ -18,17 +18,18 @@ export const equipmentTypeValues = [
 export const equipmentStatusValues = ['Activo', 'Inactivo'] as const;
 
 // Formulario reducido a lo indispensable: tipo, un nombre/modelo que lo
-// identifique, el sector donde vive y notas opcionales. Nada de fabricante,
-// numero de serie ni activo fijo: quien carga un ticket sobre este equipo no
-// tiene por que conocer esos datos.
+// identifique y el sector donde vive. El historial de "Cambios" (changeLog)
+// lo escribe solo el backend en cada edicion: el cliente no lo manda nunca.
 export const createEquipmentSchema = z.object({
   type: z.enum(equipmentTypeValues),
   model: z.string().trim().min(1, 'Escribí un modelo o nombre que lo identifique.').max(150),
   sectorId: nullableUuid,
-  notes: optionalText(2000),
 });
 
-export const updateEquipmentSchema = createEquipmentSchema.partial().extend({
+export const updateEquipmentSchema = z.object({
+  type: z.enum(equipmentTypeValues).optional(),
+  model: z.string().trim().min(1, 'Escribí un modelo o nombre que lo identifique.').max(150).optional(),
+  sectorId: nullableUuid,
   status: z.enum(equipmentStatusValues).optional(),
 });
 

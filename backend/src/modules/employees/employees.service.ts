@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError';
+import { buildChangeLine, prependLog } from '../../utils/changeLog';
 import * as repo from './employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
 import * as equipmentRepo from '../equipment/equipment.repository';
@@ -37,11 +38,42 @@ export async function create(data: CreateEmployeeInput) {
   return repo.create(data);
 }
 
+// Cada edicion deja una linea automatica en el historial de Cambios de la
+// persona ("de X a Y", con fecha y hora), visible para Admin y Supervisor.
 export async function update(id: string, data: UpdateEmployeeInput) {
-  await getById(id);
+  const existing = await getById(id);
   if (data.replacementId !== undefined) await assertReplacementValid(data.replacementId, id);
   if (data.sectorId !== undefined) await assertSectorValid(data.sectorId);
-  return repo.update(id, data);
+
+  let newSectorName: string | null = existing.sector?.name ?? null;
+  if (data.sectorId !== undefined) {
+    newSectorName = data.sectorId ? (await sectorsRepo.findById(data.sectorId))?.name ?? null : null;
+  }
+  let newReplacementName: string | null = existing.replacement?.name ?? null;
+  if (data.replacementId !== undefined) {
+    newReplacementName = data.replacementId ? (await repo.findById(data.replacementId))?.name ?? null : null;
+  }
+
+  const after = <K extends keyof UpdateEmployeeInput>(key: K, current: string | null | undefined) =>
+    data[key] !== undefined ? (data[key] as string | null | undefined) : current;
+
+  const line = buildChangeLine([
+    { label: 'Nombre', before: existing.name, after: after('name', existing.name) },
+    { label: 'Correo', before: existing.email, after: after('email', existing.email) },
+    { label: 'Teléfono', before: existing.phone, after: after('phone', existing.phone) },
+    { label: 'Interno', before: existing.extension, after: after('extension', existing.extension) },
+    { label: 'Sector', before: existing.sector?.name ?? null, after: newSectorName },
+    { label: 'Cargo', before: existing.position, after: after('position', existing.position) },
+    { label: 'Turno laboral', before: existing.workShift, after: after('workShift', existing.workShift) },
+    { label: 'Horario', before: existing.schedule, after: after('schedule', existing.schedule) },
+    { label: 'Reemplazo', before: existing.replacement?.name ?? null, after: newReplacementName },
+    { label: 'Estado', before: existing.status, after: after('status', existing.status) },
+    { label: 'Observaciones', before: existing.notes, after: after('notes', existing.notes) },
+  ]);
+
+  const patch: UpdateEmployeeInput & { changeLog?: string } = { ...data };
+  if (line) patch.changeLog = prependLog(existing.changeLog, line);
+  return repo.update(id, patch);
 }
 
 export async function remove(id: string) {

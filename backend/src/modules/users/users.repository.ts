@@ -12,6 +12,7 @@ const publicSelect = {
   status: true,
   lastAccessAt: true,
   loginCount: true,
+  changeLog: true,
   createdAt: true,
   employeeId: true,
   role: { select: { name: true } },
@@ -65,6 +66,7 @@ export async function update(
     employeeId: string | null;
     status: string;
     passwordHash: string;
+    changeLog: string;
   }>,
 ) {
   return prisma.user.update({ where: { id }, data, select: publicSelect });

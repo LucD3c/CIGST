@@ -10,8 +10,10 @@ export const employeesRouter = Router();
 
 employeesRouter.use(requireAuth, requireRole(...STAFF_ROLES));
 
+// Supervisor VE las fichas; crear, editar y borrar es exclusivo de Admin
+// (regla de rangos: Supervisor no crea ni edita catalogos).
 employeesRouter.get('/', validate({ query: listQuerySchema }), controller.list);
 employeesRouter.get('/:id', validate({ params: idParamSchema }), controller.getOne);
-employeesRouter.post('/', validate({ body: createEmployeeSchema }), controller.create);
-employeesRouter.patch('/:id', validate({ params: idParamSchema, body: updateEmployeeSchema }), controller.update);
+employeesRouter.post('/', requireRole(ROLES.ADMIN), validate({ body: createEmployeeSchema }), controller.create);
+employeesRouter.patch('/:id', requireRole(ROLES.ADMIN), validate({ params: idParamSchema, body: updateEmployeeSchema }), controller.update);
 employeesRouter.delete('/:id', requireRole(ROLES.ADMIN), validate({ params: idParamSchema }), controller.remove);

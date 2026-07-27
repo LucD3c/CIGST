@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { HttpError } from '../../utils/httpError';
 import { isUniqueConstraintError } from '../../utils/prismaErrors';
+import { buildChangeLine, prependLog, nowStamp } from '../../utils/changeLog';
 import * as repo from './users.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import { logoutAllSessionsForUser } from '../auth/auth.service';
@@ -74,12 +75,29 @@ export async function update(id: string, data: UpdateUserInput) {
   const deactivating = data.status === 'Inactivo';
   if (demoting || deactivating) await assertNotLastActiveAdmin(existing);
 
-  const patch: Partial<{ name: string; roleId: string; employeeId: string | null; status: string; passwordHash: string }> = {};
+  const patch: Partial<{ name: string; roleId: string; employeeId: string | null; status: string; passwordHash: string; changeLog: string }> = {};
   if (data.name !== undefined) patch.name = data.name;
   if (data.employeeId !== undefined) patch.employeeId = data.employeeId;
   if (data.status !== undefined) patch.status = data.status;
   if (data.role !== undefined) patch.roleId = await resolveRoleId(data.role);
   if (data.password !== undefined) patch.passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
+
+  // Historial de cambios de la cuenta ("de X a Y", con fecha y hora): lo ve
+  // el Administrador en el panel. La contraseña solo se registra como hecho,
+  // nunca su valor.
+  let newEmployeeName: string | null = existing.employee?.name ?? null;
+  if (data.employeeId !== undefined) {
+    newEmployeeName = data.employeeId ? (await employeesRepo.findById(data.employeeId))?.name ?? null : null;
+  }
+  const line = buildChangeLine([
+    { label: 'Nombre', before: existing.name, after: data.name !== undefined ? data.name : existing.name },
+    { label: 'Rol', before: existing.role.name, after: data.role !== undefined ? data.role : existing.role.name },
+    { label: 'Estado', before: existing.status, after: data.status !== undefined ? data.status : existing.status },
+    { label: 'Persona vinculada', before: existing.employee?.name ?? null, after: newEmployeeName },
+  ]);
+  const passwordLine = data.password !== undefined ? `${nowStamp()} — Contraseña actualizada` : null;
+  const fullLine = [line, passwordLine].filter(Boolean).join('\n');
+  if (fullLine) patch.changeLog = prependLog(existing.changeLog, fullLine);
 
   try {
     const updated = await repo.update(id, patch);

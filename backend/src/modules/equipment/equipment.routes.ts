@@ -10,8 +10,10 @@ export const equipmentRouter = Router();
 
 equipmentRouter.use(requireAuth, requireRole(...STAFF_ROLES));
 
+// Supervisor VE el inventario; crear, editar y borrar es exclusivo de Admin
+// (regla de rangos: Supervisor no crea ni edita catalogos).
 equipmentRouter.get('/', validate({ query: listQuerySchema }), controller.list);
 equipmentRouter.get('/:id', validate({ params: idParamSchema }), controller.getOne);
-equipmentRouter.post('/', validate({ body: createEquipmentSchema }), controller.create);
-equipmentRouter.patch('/:id', validate({ params: idParamSchema, body: updateEquipmentSchema }), controller.update);
+equipmentRouter.post('/', requireRole(ROLES.ADMIN), validate({ body: createEquipmentSchema }), controller.create);
+equipmentRouter.patch('/:id', requireRole(ROLES.ADMIN), validate({ params: idParamSchema, body: updateEquipmentSchema }), controller.update);
 equipmentRouter.delete('/:id', requireRole(ROLES.ADMIN), validate({ params: idParamSchema }), controller.remove);

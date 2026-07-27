@@ -4,7 +4,7 @@ import { createSectorSchema, updateSectorSchema } from './sectors.schema';
 import { idParamSchema, listQuerySchema } from '../../utils/commonSchemas';
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
-import { requireRole, ROLES, STAFF_ROLES } from '../../middleware/rbac.middleware';
+import { requireRole, ROLES } from '../../middleware/rbac.middleware';
 
 export const sectorsRouter = Router();
 
@@ -15,11 +15,12 @@ sectorsRouter.use(requireAuth);
 sectorsRouter.get('/', validate({ query: listQuerySchema }), controller.list);
 sectorsRouter.get('/:id', validate({ params: idParamSchema }), controller.getOne);
 
-// Crear/editar sectores es tarea de soporte (Admin+Tecnico); borrarlos, solo Admin.
-sectorsRouter.post('/', requireRole(...STAFF_ROLES), validate({ body: createSectorSchema }), controller.create);
+// Crear, editar y borrar sectores es exclusivo de Admin (regla de rangos:
+// Supervisor ve el catalogo pero no lo toca).
+sectorsRouter.post('/', requireRole(ROLES.ADMIN), validate({ body: createSectorSchema }), controller.create);
 sectorsRouter.patch(
   '/:id',
-  requireRole(...STAFF_ROLES),
+  requireRole(ROLES.ADMIN),
   validate({ params: idParamSchema, body: updateSectorSchema }),
   controller.update,
 );

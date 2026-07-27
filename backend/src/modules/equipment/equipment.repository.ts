@@ -49,7 +49,7 @@ export async function create(data: CreateEquipmentInput) {
   return prisma.equipment.create({ data: { ...data, code, status: 'Activo' }, include: { sector: true } });
 }
 
-export function update(id: string, data: UpdateEquipmentInput) {
+export function update(id: string, data: UpdateEquipmentInput & { changeLog?: string }) {
   return prisma.equipment.update({ where: { id }, data, include: { sector: true } });
 }
 

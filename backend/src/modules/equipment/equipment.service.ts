@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError';
+import { buildChangeLine, prependLog } from '../../utils/changeLog';
 import * as repo from './equipment.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
 import type { CreateEquipmentInput, UpdateEquipmentInput } from './equipment.schema';
@@ -24,10 +25,28 @@ export async function create(data: CreateEquipmentInput) {
   return repo.create(data);
 }
 
+// Cada edicion deja una linea automatica en "Cambios" (changeLog) con el
+// antes/despues de lo que se toco: es el log que usan los tecnicos para ver
+// el historial de un equipo (y detectar sectores con mucha rotacion).
 export async function update(id: string, data: UpdateEquipmentInput) {
-  await getById(id);
+  const existing = await getById(id);
   if (data.sectorId !== undefined) await assertSectorValid(data.sectorId);
-  return repo.update(id, data);
+
+  let newSectorName: string | null = existing.sector?.name ?? null;
+  if (data.sectorId !== undefined) {
+    newSectorName = data.sectorId ? (await sectorsRepo.findById(data.sectorId))?.name ?? null : null;
+  }
+
+  const line = buildChangeLine([
+    { label: 'Tipo', before: existing.type, after: data.type ?? existing.type },
+    { label: 'Modelo', before: existing.model, after: data.model ?? existing.model },
+    { label: 'Sector', before: existing.sector?.name ?? null, after: newSectorName },
+    { label: 'Estado', before: existing.status, after: data.status ?? existing.status },
+  ]);
+
+  const patch: UpdateEquipmentInput & { changeLog?: string } = { ...data };
+  if (line) patch.changeLog = prependLog(existing.changeLog, line);
+  return repo.update(id, patch);
 }
 
 export async function remove(id: string) {

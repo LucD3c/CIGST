@@ -41,8 +41,8 @@ export async function create(data: CreateEmployeeInput) {
   return prisma.employee.create({ data: { ...data, code } });
 }
 
-export function update(id: string, data: UpdateEmployeeInput) {
-  return prisma.employee.update({ where: { id }, data });
+export function update(id: string, data: UpdateEmployeeInput & { changeLog?: string }) {
+  return prisma.employee.update({ where: { id }, data, include: { sector: true, replacement: true } });
 }
 
 export function softDelete(id: string) {
