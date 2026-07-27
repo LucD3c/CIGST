@@ -48,7 +48,7 @@ function handleApiError(err) {
 }
 
 /* ---------- Estado ---------- */
-let store = { employees: [], equipment: [], tickets: [], logbook: [], users: [], technicians: [], sectors: [], schedules: [], activity: [] };
+let store = { employees: [], equipment: [], tickets: [], logbook: [], users: [], technicians: [], sectors: [], schedules: [], categories: [], activity: [] };
 let currentUser = null;
 let session = false;
 let currentView = 'dashboard';
@@ -96,7 +96,8 @@ function normalizeTicket(t) {
     equipment: t.equipmentId || '', sectorId: t.sectorId || '', sectorName: t.sector?.name || '',
     scheduleId: t.scheduleId || '', scheduleInfo: t.schedule || null, category: t.category || 'General',
     technician: t.technician?.name || '', technicianId: t.technicianId || '',
-    status: t.status, priority: t.priority, solution: t.solution || '', time: t.timeSpent || '',
+    status: t.status, priority: t.priority, solution: t.solution || '',
+    attachments: t.attachments || [],
     createdAt: t.createdAt, updatedAt: t.updatedAt, createdByName: t.createdBy?.name || '',
     employeeInfo: t.employee || null, requestedByInfo: t.requestedBy || null,
     sectorInfo: t.sector || null, equipmentInfo: t.equipment || null,
@@ -120,6 +121,7 @@ function normalizeSector(s) {
     id: s.id, name: s.name, status: s.status,
     people: (s.people || []).map(p => ({ id: p.id, name: p.name, status: p.status })),
     equipmentList: (s.equipment || []).map(x => ({ id: x.id, type: x.type, model: x.model, status: x.status })),
+    categories: (s.categories || []).map(c => ({ id: c.id, name: c.name })),
   };
 }
 function normalizeSchedule(s) {
@@ -140,8 +142,9 @@ function applySessionUser(user) {
   currentView = isStaff() ? 'dashboard' : 'employee-portal';
 }
 async function loadStaffData() {
-  const [employeesRes, equipmentRes, ticketsRes, techniciansRes, sectorsRes, schedulesRes] = await Promise.all([
+  const [employeesRes, equipmentRes, ticketsRes, techniciansRes, sectorsRes, schedulesRes, options] = await Promise.all([
     api('/employees'), api('/equipment'), api('/tickets'), api('/users/technicians'), api('/sectors'), api('/schedules'),
+    api('/tickets/form-options'),
   ]);
   store.employees = employeesRes.employees.map(normalizeEmployee);
   store.equipment = equipmentRes.equipment.map(normalizeEquipment);
@@ -149,6 +152,7 @@ async function loadStaffData() {
   store.technicians = techniciansRes.technicians;
   store.sectors = sectorsRes.sectors.map(normalizeSector);
   store.schedules = schedulesRes.schedules.map(normalizeSchedule);
+  store.categories = options.categories || [];
   if (isAdmin()) {
     const { entries } = await api('/logbook');
     store.logbook = entries.map(normalizeLogbookEntry);
@@ -166,6 +170,7 @@ async function loadEmployeeData() {
   // SI necesita elegir persona/equipo/sector/turno al crear un ticket:
   // /tickets/form-options le da exactamente eso (solo activos, datos minimos).
   const [ticketsRes, options] = await Promise.all([api('/tickets'), api('/tickets/form-options')]);
+  store.categories = options.categories || [];
   store.tickets = ticketsRes.tickets.map(normalizeTicket);
   store.employees = options.people.map(p => ({ id: p.id, code: '', name: p.name, document: '—', email: '', phone: '', extension: '', sectorId: p.sectorId || '', sectorName: p.sectorName || '', position: '', status: 'Activo', workShift: '', schedule: '', replacement: '', replacementInfo: null, notes: '', changeLog: '', sectorEquipment: [] }));
   store.equipment = options.equipment.map(e => ({ id: e.id, code: '', type: e.type || '', model: e.model || '', status: 'Activo', sectorId: e.sectorId || '', sectorName: e.sectorName || '', changeLog: '' }));
@@ -205,13 +210,89 @@ function deriveActivity(tickets, logbook) {
   return items.sort((a, b) => b.ts - a.ts).slice(0, 8);
 }
 
+/* ---------- Adjuntos (tickets y chat) ---------- */
+const ATTACH_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,.pdf,.xlsx,.xls,.csv';
+const ATTACH_MAX_FILES = 5;
+const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
+const isImageMime = m => ['image/png','image/jpeg','image/gif','image/webp'].includes(m);
+function formatBytes(bytes){
+  if(bytes<1024)return `${bytes} B`;
+  if(bytes<1024*1024)return `${Math.round(bytes/1024)} KB`;
+  return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+}
+// Sube los archivos elegidos y devuelve los adjuntos ya registrados en el
+// servidor (todavia sin vincular: se vinculan al crear el ticket/mensaje).
+async function uploadFiles(fileList){
+  const files=[...fileList];
+  if(!files.length)return [];
+  if(files.length>ATTACH_MAX_FILES)throw new Error(`Se pueden adjuntar hasta ${ATTACH_MAX_FILES} archivos por vez.`);
+  const tooBig=files.find(f=>f.size>ATTACH_MAX_BYTES);
+  if(tooBig)throw new Error(`"${tooBig.name}" supera los 10 MB permitidos.`);
+  const form=new FormData();
+  files.forEach(f=>form.append('files',f));
+  const res=await fetch('/api/attachments',{method:'POST',body:form,credentials:'same-origin'});
+  const text=await res.text();
+  let data=null;
+  if(text){try{data=JSON.parse(text);}catch{data=null;}}
+  if(!res.ok)throw new Error(data?.error||'No se pudieron subir los archivos.');
+  return data.attachments;
+}
+// Campo reutilizable: input de archivo + lista de lo ya adjuntado. Guarda los
+// ids en un array que el formulario lee al enviar.
+function attachmentField(id,label='Archivos adjuntos'){
+  return `<div class="field form-span"><label>${label} <span class="muted" style="font-weight:400">· imágenes, PDF o planillas · hasta 10 MB c/u</span></label>`
+    +`<input type="file" id="${id}-input" class="file-input" multiple accept="${ATTACH_ACCEPT}" />`
+    +`<div class="attach-list" id="${id}-list"></div></div>`;
+}
+// Devuelve un objeto con .ids() para leer los adjuntos confirmados.
+function wireAttachmentField(id){
+  const input=document.getElementById(`${id}-input`);
+  const list=document.getElementById(`${id}-list`);
+  const state=[];
+  if(!input||!list)return {ids:()=>[]};
+  const paint=()=>{
+    list.innerHTML=state.map(a=>`<div class="attach-item"><span class="attach-name">${esc(a.originalName)}</span><span class="attach-size">${formatBytes(a.size)}</span><button type="button" class="attach-remove" data-remove-attach="${a.id}" title="Quitar">×</button></div>`).join('');
+    list.querySelectorAll('[data-remove-attach]').forEach(btn=>btn.onclick=()=>{
+      const idx=state.findIndex(a=>a.id===btn.dataset.removeAttach);
+      if(idx>=0)state.splice(idx,1);
+      paint();
+    });
+  };
+  input.onchange=async()=>{
+    if(!input.files?.length)return;
+    input.disabled=true;
+    try{
+      const uploaded=await uploadFiles(input.files);
+      uploaded.forEach(a=>{ if(state.length<ATTACH_MAX_FILES)state.push(a); });
+      paint();
+    }catch(err){toast(err.message||'No se pudieron subir los archivos.');}
+    finally{input.disabled=false;input.value='';}
+  };
+  return {ids:()=>state.map(a=>a.id)};
+}
+// Render de adjuntos ya guardados: las imagenes se ven, el resto se descarga.
+function attachmentsHtml(list,compact=false){
+  if(!list||!list.length)return '';
+  return `<div class="attach-view ${compact?'compact':''}">`+list.map(a=>{
+    const url=`/api/attachments/${encodeURIComponent(a.id)}`;
+    if(isImageMime(a.mimeType)){
+      return `<a class="attach-image" href="${url}" target="_blank" rel="noopener" title="${esc(a.originalName)}"><img src="${url}" alt="${esc(a.originalName)}" loading="lazy" /></a>`;
+    }
+    return `<a class="attach-file" href="${url}" target="_blank" rel="noopener"><span class="attach-file-icon">▤</span><span class="attach-name">${esc(a.originalName)}</span><span class="attach-size">${formatBytes(a.size)}</span></a>`;
+  }).join('')+`</div>`;
+}
+
 /* ---------- Utilidades de presentacion ---------- */
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const employee = id => store.employees.find(x => x.id === id);
 const equipment = id => store.equipment.find(x => x.id === id);
 const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
-const navItems = [ ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipamiento'], ['sectors','◫','Sectores'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
+const navItems = [ ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
+// Equipos y tambien LUGARES: un ticket puede apuntar a una PC o a un
+// consultorio/sala/puerta. Se carga solo lo que recibe pedidos, no un
+// inventario exhaustivo de la empresa.
+const EQUIPMENT_TYPES = ['PC','Notebook','Monitor','Teclado','Mouse','Scanner','Impresora','UPS','Teléfono IP','Lector','Consultorio','Oficina','Sala','Depósito','Puerta','Instalación','Otro'];
 const isAdmin = () => currentUser?.role === 'Administrador';
 const isSupervisor = () => currentUser?.role === 'Supervisor';
 const isUser = () => currentUser?.role === 'User';
@@ -230,8 +311,8 @@ function ticketsView(){return page('Tickets','Registro y seguimiento de incidenc
 function employeePortal(){const person=employee(currentUser.employeeId);return page('Solicitudes de soporte','Creá una solicitud para vos o para cualquier persona de la empresa.',`<button class="btn btn-primary" data-action="new-employee-ticket">+ Solicitar soporte</button>`)+`<section class="panel"><div class="panel-head"><h2>Mis solicitudes</h2><span class="muted">${esc(person?.sectorName||'')}</span></div>${ticketsTable(store.tickets)}</section><section class="panel" style="margin-top:18px"><div class="side-card"><h3>¿Necesitás ayuda?</h3><p class="muted">Describí el problema, elegí a quién hay que asistir (vos u otra persona), la prioridad y, si corresponde, el equipo. Sistemas recibirá la solicitud y actualizará el estado.</p></div></section>`}
 function employeesView(){return page('Personas','Ficha centralizada de colaboradores y su contexto técnico.',isAdmin()?`<button class="btn btn-primary" data-action="new-employee">+ Nueva persona</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, correo, interno o sector…" data-filter="employees" /></div><div class="panel" id="employees-table">${employeesTable(store.employees)}</div>`}
 function employeesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Persona</th><th>Sector / Cargo</th><th>Horario</th><th>Estado</th></tr></thead><tbody>${rows.map(x=>`<tr data-employee="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="muted">${esc(x.email)}</span></td><td>${esc(x.sectorName||'Sin sector')}<br><span class="muted">${esc(x.position)}</span></td><td>${esc(x.workShift)}<br><span class="muted">${esc(x.schedule)}</span></td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="4" class="empty">No se encontraron personas.</td></tr>`}</tbody></table></div>`}
-function equipmentView(){return page('Equipamiento','Inventario simple, vinculado por sector.',isAdmin()?`<button class="btn btn-primary" data-action="new-equipment">+ Nuevo equipo</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por tipo, modelo o sector…" data-filter="equipment" /></div><div class="panel" id="equipment-table">${equipmentTable(store.equipment)}</div>`}
-function equipmentTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Equipo</th><th>Sector</th><th>Estado</th></tr></thead><tbody>${rows.map(x=>`<tr data-equipment="${x.id}"><td><strong>${esc(x.model)||esc(x.type)}</strong><br><span class="muted">${esc(x.type)} · ${esc(x.code)}</span></td><td>${esc(x.sectorName||'Sin sector')}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No se encontraron equipos.</td></tr>`}</tbody></table></div>`}
+function equipmentView(){return page('Equipos y espacios','Todo aquello sobre lo que se puede pedir ayuda: equipos, consultorios, salas, instalaciones.',isAdmin()?`<button class="btn btn-primary" data-action="new-equipment">+ Nuevo equipo o espacio</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por tipo, nombre o sector…" data-filter="equipment" /></div><div class="panel" id="equipment-table">${equipmentTable(store.equipment)}</div>`}
+function equipmentTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Equipo o espacio</th><th>Sector</th><th>Estado</th></tr></thead><tbody>${rows.map(x=>`<tr data-equipment="${x.id}"><td><strong>${esc(x.model)||esc(x.type)}</strong><br><span class="muted">${esc(x.type)} · ${esc(x.code)}</span></td><td>${esc(x.sectorName||'Sin sector')}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No se encontraron equipos ni espacios.</td></tr>`}</tbody></table></div>`}
 function logbookView(){return page('Bitácora técnica','Eventos relevantes y cambios de infraestructura.',`<button class="btn btn-primary" data-action="new-log">+ Registrar evento</button>`)+`<section class="panel">${store.logbook.map(x=>`<div class="event"><div class="row-between"><strong>${esc(x.title)}</strong>${badge(x.category)}</div><span>${x.date} · ${esc(x.author)}</span><p class="muted">${esc(x.detail)}</p></div>`).join('')}</section>`}
 function usersView(){return page('Panel administrador','Usuarios, roles y accesos de la plataforma.',`<button class="btn btn-primary" data-action="new-user">+ Crear usuario</button>`)+`<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Ingresos</th></tr></thead><tbody>${store.users.map(x=>`<tr data-user="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="mono">${esc(x.username)}</span></td><td>${esc(x.role)}</td><td>${badge(x.status)}</td><td>${esc(x.lastAccess)}</td><td>${x.logins}</td></tr>`).join('')}</tbody></table></div></section>`}
 function employeeDetail(x){const relatedTickets=store.tickets.filter(t=>t.employee===x.id);return page('Ficha de persona','Contexto operativo unificado.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-employee="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.name)}</h2><p>${esc(x.position)} · ${esc(x.sectorName||'Sin sector')}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Correo</label>${esc(x.email)}</div><div class="info"><label>Interno</label>${esc(x.extension)}</div><div class="info"><label>Horario</label>${esc(x.workShift)} · ${esc(x.schedule)}</div><div class="info"><label>Reemplazo</label>${esc(x.replacementInfo?.name||'No definido')}</div></div></div><div class="panel-head"><h2>Tickets relacionados</h2></div>${ticketsTable(relatedTickets)}</section><aside><div class="panel side-card"><h3>Equipamiento del sector</h3>${x.sectorEquipment.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">No hay equipamiento registrado en este sector.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Notas técnicas</h3>${x.notes?`<div class="note">${esc(x.notes)}</div>`:'<p class="muted">Sin observaciones registradas.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía.</p>'}</div></aside></div>`}
@@ -239,9 +320,80 @@ function equipmentDetail(x){const tickets=store.tickets.filter(t=>t.equipment===
 function sectorsView(){return page('Sectores y turnos','Catálogo compartido por Personas, Equipos y Tickets.',isAdmin()?`<button class="btn btn-primary" data-action="new-sector">+ Nuevo sector</button>`:'')+`<div class="panel" id="sectors-table">${sectorsTable(store.sectors)}</div><section class="panel" style="margin-top:18px"><div class="panel-head"><h2>Turnos de soporte</h2>${isAdmin()?'<button class="btn btn-ghost" data-action="new-schedule">+ Nuevo turno</button>':''}</div><div id="schedules-table">${schedulesTable(store.schedules)}</div></section>`}
 function sectorsTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Sector</th><th>Estado</th></tr></thead><tbody>${rows.map(s=>`<tr data-sector="${s.id}"><td><strong>${esc(s.name)}</strong></td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay sectores creados todavía.</td></tr>`}</tbody></table></div>`}
 function schedulesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Turno</th><th>Horario</th><th>Estado</th></tr></thead><tbody>${rows.map(s=>`<tr data-schedule="${s.id}"><td><strong>${esc(s.name)}</strong></td><td class="mono">${esc(s.startTime)}–${esc(s.endTime)}</td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No hay turnos creados todavía.</td></tr>`}</tbody></table></div>`}
-function sectorDetail(x){const peopleRows=x.people.map(p=>`<tr data-employee="${p.id}"><td>${esc(p.name)}</td><td>${badge(p.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay personas en este sector.</td></tr>`;return page('Detalle de sector','Personas y equipos vinculados a este sector.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-sector="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><h2>${esc(x.name)}</h2>${badge(x.status)}</div></div><div class="panel-head"><h2>Personas (${x.people.length})</h2></div><div class="table-wrap"><table class="data-table"><tbody>${peopleRows}</tbody></table></div></section><aside><div class="panel side-card"><h3>Equipamiento (${x.equipmentList.length})</h3>${x.equipmentList.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">Sin equipamiento en este sector.</p>'}</div></aside></div>`}
-function ticketDetail(ticket){const affected=ticket.employeeInfo||employee(ticket.employee);const requester=ticket.requestedByInfo||affected;const device=ticket.equipmentInfo;const shift=ticket.scheduleInfo?`${ticket.scheduleInfo.name} · ${ticket.scheduleInfo.startTime}–${ticket.scheduleInfo.endTime}`:'No indicado';const context=`<div class="form-span"><div class="note"><strong>${esc(ticket.code)} · ${esc(ticket.title)}</strong><br>${esc(ticket.description||'Sin descripción adicional.')}<br><br><b>Persona a asistir:</b> ${esc(affected?.name||'No indicada')} · <b>Solicitó:</b> ${esc(requester?.name||affected?.name||'No indicado')}<br><b>Sector:</b> ${esc(ticket.sectorInfo?.name||'No indicado')} · <b>Turno de soporte:</b> ${esc(shift)}<br><b>Equipo:</b> ${esc(device?`${device.model} (${device.type})`:'No corresponde')} · <b>Categoría:</b> ${esc(ticket.category||'General')}<br><b>Creado:</b> ${esc(formatDateTime(ticket.createdAt))}</div></div>`;if(!isStaff()){ $('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal"><div class="modal-head"><h2>Solicitud ${esc(ticket.code)}</h2><button class="close" type="button">×</button></div><div class="modal-body"><div class="form-grid">${context}</div><div class="modal-actions"><button class="btn btn-primary" type="button" data-close>Cerrar</button></div></div></section></div>`;$('.close').onclick=closeModal;$('[data-close]').onclick=closeModal;return;}const technicians=store.technicians.map(x=>[x.id,x.name]);modal(`Gestionar ${ticket.code}`,context+select('status','Estado',['Nuevo','Abierto','En proceso','Esperando usuario','Esperando proveedor','Resuelto','Cerrado','Cancelado'])+select('priority','Prioridad',['Baja','Media','Alta','Crítica'])+select('technician','Asignado a',[['','Sin asignar'],...technicians])+`<div class="field form-span"><label>Solución aplicada</label><textarea name="solution">${esc(ticket.solution||'')}</textarea></div>`+textValue('time','Tiempo invertido',ticket.time||''),f=>updateTicket(ticket,f));const form=$('#entry-form');form.elements.status.value=ticket.status;form.elements.priority.value=ticket.priority;form.elements.technician.value=ticket.technicianId||'';}
-async function updateTicket(ticket, values){const payload={status:values.get('status'),priority:values.get('priority'),technicianId:values.get('technician')||'',solution:values.get('solution')||'',timeSpent:values.get('time')||''};const {ticket:updated}=await api(`/tickets/${ticket.id}`,{method:'PATCH',body:payload});const normalized=normalizeTicket(updated);const idx=store.tickets.findIndex(t=>t.id===ticket.id);if(idx>=0)store.tickets[idx]=normalized;}
+function sectorDetail(x){
+  const peopleRows=x.people.map(p=>`<tr data-employee="${p.id}"><td>${esc(p.name)}</td><td>${badge(p.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay personas en este sector.</td></tr>`;
+  // Categorias de ticket de ESTE sector: son las que van a aparecer al crear
+  // un ticket dirigido aca. Las administra el Admin desde este mismo panel.
+  const categoryRows=x.categories.length
+    ? x.categories.map(c=>`<div class="cat-item"><span>${esc(c.name)}</span>${isAdmin()?`<button type="button" class="cat-remove" data-remove-category="${c.id}" data-sector="${x.id}" title="Eliminar categoría">×</button>`:''}</div>`).join('')
+    : '<p class="muted">Todavía no hay categorías. Al crear un ticket para este sector se usará "General".</p>';
+  const categoryForm=isAdmin()
+    ? `<form class="cat-form" id="cat-form" data-sector-id="${x.id}"><input name="name" placeholder="Nueva categoría (ej. Arreglar)" maxlength="80" required /><button class="btn btn-primary" type="submit">Agregar</button></form>`
+    : '';
+  return page('Detalle de sector','Personas, equipos y categorías de ticket de este sector.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-sector="${x.id}">Editar</button>`:'')
+    +`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><h2>${esc(x.name)}</h2>${badge(x.status)}</div></div>`
+    +`<div class="panel-head"><h2>Personas (${x.people.length})</h2></div><div class="table-wrap"><table class="data-table"><tbody>${peopleRows}</tbody></table></div></section>`
+    +`<aside><div class="panel side-card"><h3>Categorías de ticket (${x.categories.length})</h3><p class="muted" style="margin:0 0 10px;font-size:12px">Aparecen al crear un ticket dirigido a este sector.</p><div class="cat-list">${categoryRows}</div>${categoryForm}</div>`
+    +`<div class="panel side-card" style="margin-top:18px"><h3>Equipos y espacios (${x.equipmentList.length})</h3>${x.equipmentList.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">Sin equipos ni espacios en este sector.</p>'}</div></aside></div>`;
+}
+// Alta y baja de categorias desde el detalle del sector (solo Admin).
+function wireSectorCategories(){
+  const form=document.getElementById('cat-form');
+  if(form){
+    form.onsubmit=async e=>{
+      e.preventDefault();
+      const name=form.elements.name.value.trim();
+      if(!name)return;
+      const btn=form.querySelector('button[type=submit]');
+      btn.disabled=true;
+      try{
+        await api(`/sectors/${form.dataset.sectorId}/categories`,{method:'POST',body:{name}});
+        toast('Categoría agregada.');
+        render();
+      }catch(err){toast(apiErrorMessage(err));btn.disabled=false;}
+    };
+  }
+  document.querySelectorAll('[data-remove-category]').forEach(btn=>btn.onclick=async()=>{
+    if(!window.confirm('¿Eliminar esta categoría? Los tickets que ya la usaron no se modifican.'))return;
+    try{
+      await api(`/sectors/${btn.dataset.sector}/categories/${btn.dataset.removeCategory}`,{method:'DELETE'});
+      toast('Categoría eliminada.');
+      render();
+    }catch(err){toast(apiErrorMessage(err));}
+  });
+}
+// El listado no trae los adjuntos (seria pesado): se piden al abrir el
+// detalle, que es cuando de verdad se necesitan.
+async function ticketDetail(listTicket){
+  let ticket=listTicket;
+  try{const res=await api(`/tickets/${listTicket.id}`);ticket=normalizeTicket(res.ticket);}
+  catch(err){handleApiError(err);return;}
+
+  const affected=ticket.employeeInfo||employee(ticket.employee);
+  const requester=ticket.requestedByInfo||affected;
+  const device=ticket.equipmentInfo;
+  const shift=ticket.scheduleInfo?`${ticket.scheduleInfo.name} · ${ticket.scheduleInfo.startTime}–${ticket.scheduleInfo.endTime}`:'No indicado';
+  const files=attachmentsHtml(ticket.attachments);
+  const context=`<div class="form-span"><div class="note"><strong>${esc(ticket.code)} · ${esc(ticket.title)}</strong><br>${esc(ticket.description||'Sin descripción adicional.')}<br><br><b>Persona a asistir:</b> ${esc(affected?.name||'No indicada')} · <b>Solicitó:</b> ${esc(requester?.name||affected?.name||'No indicado')}<br><b>Sector:</b> ${esc(ticket.sectorInfo?.name||'No indicado')} · <b>Turno de soporte:</b> ${esc(shift)}<br><b>Equipo o espacio:</b> ${esc(device?`${device.model} (${device.type})`:'No corresponde')} · <b>Categoría:</b> ${esc(ticket.category||'General')}<br><b>Creado:</b> ${esc(formatDateTime(ticket.createdAt))}</div>${files?`<div class="attach-block"><label>Archivos adjuntos</label>${files}</div>`:''}</div>`;
+
+  if(!isStaff()){
+    $('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal"><div class="modal-head"><h2>Solicitud ${esc(ticket.code)}</h2><button class="close" type="button">×</button></div><div class="modal-body"><div class="form-grid">${context}</div><div class="modal-actions"><button class="btn btn-primary" type="button" data-close>Cerrar</button></div></div></section></div>`;
+    $('.close').onclick=closeModal;$('[data-close]').onclick=closeModal;
+    return;
+  }
+  const technicians=store.technicians.map(x=>[x.id,x.name]);
+  modal(`Gestionar ${ticket.code}`,context
+    +select('status','Estado',['Nuevo','Abierto','En proceso','Esperando usuario','Esperando proveedor','Resuelto','Cerrado','Cancelado'])
+    +select('priority','Prioridad',['Baja','Media','Alta','Crítica'])
+    +select('technician','Asignado a',[['','Sin asignar'],...technicians])
+    +`<div class="field form-span"><label>Solución aplicada</label><textarea name="solution">${esc(ticket.solution||'')}</textarea></div>`,
+    f=>updateTicket(ticket,f));
+  const form=$('#entry-form');
+  form.elements.status.value=ticket.status;
+  form.elements.priority.value=ticket.priority;
+  form.elements.technician.value=ticket.technicianId||'';
+}
+async function updateTicket(ticket, values){const payload={status:values.get('status'),priority:values.get('priority'),technicianId:values.get('technician')||'',solution:values.get('solution')||''};const {ticket:updated}=await api(`/tickets/${ticket.id}`,{method:'PATCH',body:payload});const normalized=normalizeTicket(updated);const idx=store.tickets.findIndex(t=>t.id===ticket.id);if(idx>=0)store.tickets[idx]=normalized;}
 
 /* ---------- Menu rapido de tickets (cerrar/resolver/asignarme sin abrir el detalle) ---------- */
 function openQuickMenu(button, ticketId){
@@ -280,28 +432,44 @@ function sectorSelectOptions(selectedId){
 }
 const sectorField=(selectedId='',label='Sector')=>`<div class="field"><label>${label}</label><select name="sectorId">${sectorSelectOptions(selectedId)}</select></div>`;
 
-function ticketFields(defaultPersonId=''){const person=employee(defaultPersonId);const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`])];const peopleOptions=store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]);const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`])];return select('employee','Persona a asistir',peopleOptions,defaultPersonId)+select('requestedBy','Solicitud informada por',peopleOptions,defaultPersonId)+field('title','Título breve','text','form-span')+select('equipment','Equipo relacionado',equipmentOptions)+sectorField(person?.sectorId||'')+select('category','Categoría',['Acceso / contraseña','Aplicación / sistema','Hardware','Impresión','Red / conectividad','Telefonía','Otro'])+select('priority','Prioridad',['Media','Baja','Alta','Crítica'])+select('scheduleId','Turno de soporte',scheduleOptions)+requiredTextArea('description','Descripción del inconveniente','form-span');}
-async function createTicket(values){const payload={title:values.get('title'),description:values.get('description'),employeeId:values.get('employee')||'',requestedById:values.get('requestedBy')||'',equipmentId:values.get('equipment')||'',sectorId:values.get('sectorId')||'',scheduleId:values.get('scheduleId')||'',category:values.get('category'),priority:values.get('priority')};const {ticket}=await api('/tickets',{method:'POST',body:payload});store.tickets.unshift(normalizeTicket(ticket));}
-// Al elegir un equipo, el sector se completa solo con el sector ACTUAL de ese
-// equipo (siempre sincronizado: los datos se cargan frescos en cada vista).
-// Y al cambiar la persona a asistir, se propone el sector de esa persona.
+// Categorias del sector elegido: cada sector define las suyas desde su propia
+// pantalla, asi que la lista cambia con el desplegable de Sector.
+function categoriesForSector(sectorId){
+  return store.categories.filter(c=>c.sectorId===sectorId).map(c=>c.name);
+}
+function categoryOptionsHtml(sectorId){
+  const names=categoriesForSector(sectorId);
+  if(!names.length)return `<option value="">${esc(sectorId?'Este sector no tiene categorías cargadas':'Elegí un sector primero')}</option>`;
+  return names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+}
+function ticketFields(defaultPersonId=''){const person=employee(defaultPersonId);const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`])];const peopleOptions=store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]);const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`])];const sectorId=person?.sectorId||'';return select('employee','Persona a asistir',peopleOptions,defaultPersonId)+select('requestedBy','Solicitud informada por',peopleOptions,defaultPersonId)+field('title','Título breve','text','form-span')+select('equipment','Equipo o espacio relacionado',equipmentOptions)+sectorField(sectorId)+`<div class="field"><label>Categoría</label><select name="category">${categoryOptionsHtml(sectorId)}</select></div>`+select('priority','Prioridad',['Media','Baja','Alta','Crítica'])+select('scheduleId','Turno de soporte',scheduleOptions)+requiredTextArea('description','Descripción del inconveniente','form-span')+attachmentField('ticket-attach');}
+async function createTicket(values,attachIds){const payload={title:values.get('title'),description:values.get('description'),employeeId:values.get('employee')||'',requestedById:values.get('requestedBy')||'',equipmentId:values.get('equipment')||'',sectorId:values.get('sectorId')||'',scheduleId:values.get('scheduleId')||'',category:values.get('category')||'',priority:values.get('priority'),attachmentIds:attachIds||[]};const {ticket}=await api('/tickets',{method:'POST',body:payload});store.tickets.unshift(normalizeTicket(ticket));}
+// Al elegir un equipo/espacio, el sector se completa solo con el sector
+// ACTUAL de ese equipo (siempre sincronizado). Al cambiar la persona, se
+// propone el suyo. Y cada vez que cambia el sector, la lista de categorias
+// se rearma con las de ese sector.
 function wireTicketFormAutoselect(){
   const form=$('#entry-form');
   if(!form)return;
+  const sectorSel=form.elements.sectorId;
+  const catSel=form.elements.category;
+  const refreshCategories=()=>{ if(catSel&&sectorSel)catSel.innerHTML=categoryOptionsHtml(sectorSel.value); };
+  sectorSel?.addEventListener('change',refreshCategories);
   form.elements.equipment?.addEventListener('change',()=>{
     const eq=store.equipment.find(x=>x.id===form.elements.equipment.value);
-    if(eq&&form.elements.sectorId)form.elements.sectorId.value=eq.sectorId||'';
+    if(eq&&sectorSel){sectorSel.value=eq.sectorId||'';refreshCategories();}
   });
   form.elements.employee?.addEventListener('change',()=>{
     const p=employee(form.elements.employee.value);
-    if(p&&form.elements.sectorId&&!form.elements.equipment.value)form.elements.sectorId.value=p.sectorId||'';
+    if(p&&sectorSel&&!form.elements.equipment.value){sectorSel.value=p.sectorId||'';refreshCategories();}
   });
+  refreshCategories();
 }
 function openNew(kind){
- if(kind==='ticket'){modal('Nuevo ticket',ticketFields(''),f=>createTicket(f));wireTicketFormAutoselect();}
- if(kind==='employee-ticket'){modal('Solicitar soporte',ticketFields(currentUser.employeeId),f=>createTicket(f));wireTicketFormAutoselect();}
+ if(kind==='ticket'){let att;modal('Nuevo ticket',ticketFields(''),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
+ if(kind==='employee-ticket'){let att;modal('Solicitar soporte',ticketFields(currentUser.employeeId),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
  if(kind==='employee')modal('Nueva persona',field('name','Nombre y apellido')+field('email','Correo','email')+sectorField()+field('position','Cargo')+field('extension','Interno')+field('phone','Teléfono')+select('workShift','Turno laboral',['Mañana','Tarde','Jornada completa','Otro'])+field('schedule','Horario habitual')+select('replacement','Reemplazo habitual',[['','No definido'],...store.employees.map(x=>[x.id,x.name])])+field('notes','Observaciones','textarea','form-span'),async f=>{const payload={name:f.get('name'),email:f.get('email')||undefined,sectorId:f.get('sectorId')||'',position:f.get('position')||undefined,extension:f.get('extension')||undefined,phone:f.get('phone')||undefined,workShift:f.get('workShift')||undefined,schedule:f.get('schedule')||undefined,replacementId:f.get('replacement')||'',notes:f.get('notes')||undefined};const {employee:created}=await api('/employees',{method:'POST',body:payload});store.employees.push(normalizeEmployee(created));});
- if(kind==='equipment')modal('Nuevo equipo',select('type','Tipo',['PC','Notebook','Monitor','Teclado','Mouse','Scanner','Impresora','UPS','Teléfono IP','Lector','Otro'])+field('model','Modelo / nombre')+sectorField(),async f=>{const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||''};const {equipment:created}=await api('/equipment',{method:'POST',body:payload});store.equipment.push(normalizeEquipment(created));});
+ if(kind==='equipment')modal('Nuevo equipo o espacio',select('type','Tipo',EQUIPMENT_TYPES)+field('model','Nombre o identificación')+sectorField(),async f=>{const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||''};const {equipment:created}=await api('/equipment',{method:'POST',body:payload});store.equipment.push(normalizeEquipment(created));});
  if(kind==='log')modal('Registrar evento',field('title','Título','text','form-span')+select('category','Categoría',['Mantenimiento','Infraestructura','Seguridad','Cambio','Actualización'])+field('detail','Detalle técnico','textarea','form-span'),async f=>{const payload={title:f.get('title'),category:f.get('category'),detail:f.get('detail')};const {entry}=await api('/logbook',{method:'POST',body:payload});store.logbook.unshift(normalizeLogbookEntry(entry));});
  if(kind==='user')modal('Crear usuario',field('name','Nombre completo')+field('username','Usuario')+field('password','Contraseña inicial','password')+select('role','Rol',['Administrador','Supervisor','User'])+select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name])]),async f=>{const payload={name:f.get('name'),username:f.get('username'),password:f.get('password'),role:f.get('role'),employeeId:f.get('role')==='User'?(f.get('employee')||''):''};const {user:created}=await api('/users',{method:'POST',body:payload});store.users.push(normalizeUser(created));});
  if(kind==='sector')modal('Nuevo sector',field('name','Nombre del sector'),async f=>{const {sector:created}=await api('/sectors',{method:'POST',body:{name:f.get('name')}});store.sectors.push(normalizeSector(created));});
@@ -334,8 +502,8 @@ function openEmployeeEdit(id){
 function openEquipmentEdit(id){
   const x=equipment(id);
   if(!x)return;
-  const fields=select('type','Tipo',['PC','Notebook','Monitor','Teclado','Mouse','Scanner','Impresora','UPS','Teléfono IP','Lector','Otro'],x.type)
-    +textValue('model','Modelo / nombre',x.model)
+  const fields=select('type','Tipo',EQUIPMENT_TYPES,x.type)
+    +textValue('model','Nombre o identificación',x.model)
     +sectorField(x.sectorId)
     +select('status','Estado',['Activo','Inactivo'],x.status);
   modal(`Editar ${x.model||x.type}`,fields,async f=>{
@@ -524,7 +692,9 @@ async function openNewChatPicker(){
 }
 function chatBubble(m){
   const sender=m.senderName&&!m.mine?`<div class="chat-bubble-sender">${esc(m.senderName)}</div>`:'';
-  return `<div class="chat-bubble ${m.mine?'mine':''}">${sender}<div class="chat-bubble-text">${esc(m.body)}</div><div class="chat-bubble-time">${formatDateTime(m.createdAt)}</div></div>`;
+  const text=m.body?`<div class="chat-bubble-text">${esc(m.body)}</div>`:'';
+  const files=attachmentsHtml(m.attachments,true);
+  return `<div class="chat-bubble ${m.mine?'mine':''}">${sender}${text}${files}<div class="chat-bubble-time">${formatDateTime(m.createdAt)}</div></div>`;
 }
 function renderChatMessagesInner(hasMore){
   return (hasMore?'<button type="button" class="btn btn-ghost chat-load-more" id="chat-load-more">Cargar mensajes anteriores</button>':'')+chatMessages.map(chatBubble).join('');
@@ -532,7 +702,12 @@ function renderChatMessagesInner(hasMore){
 function renderChatThreadShell(otherName,hasMore,headExtra=''){
   return `<div class="chat-thread-head"><div class="row-between"><strong>${esc(otherName)}</strong>${headExtra}</div></div>`
     +`<div class="chat-messages" id="chat-messages">${renderChatMessagesInner(hasMore)}</div>`
-    +`<form class="chat-composer" id="chat-composer"><textarea name="body" maxlength="2000" placeholder="Escribí un mensaje… (Enter para enviar, Shift+Enter para saltear línea)" required></textarea><button class="btn btn-primary" type="submit">Enviar</button></form>`;
+    +`<div class="attach-list" id="chat-attach-list"></div>`
+    +`<form class="chat-composer" id="chat-composer">`
+      +`<label class="attach-btn" title="Adjuntar archivo">📎<input type="file" id="chat-attach-input" multiple accept="${ATTACH_ACCEPT}" hidden /></label>`
+      +`<textarea name="body" maxlength="2000" placeholder="Escribí un mensaje o adjuntá un archivo… (Enter para enviar)"></textarea>`
+      +`<button class="btn btn-primary" type="submit">Enviar</button>`
+    +`</form>`;
 }
 function scrollChatToBottom(){
   const container=document.getElementById('chat-messages');
@@ -631,18 +806,44 @@ function wireChatComposer(target){
   const form=document.getElementById('chat-composer');
   if(!form)return;
   const textarea=form.querySelector('textarea[name=body]');
+  // Adjuntos pendientes de este mensaje: se suben al elegirlos y se vinculan
+  // recien al enviar (igual que en el formulario de ticket).
+  const input=document.getElementById('chat-attach-input');
+  const list=document.getElementById('chat-attach-list');
+  let pending=[];
+  const paintPending=()=>{
+    if(!list)return;
+    list.innerHTML=pending.map(a=>`<div class="attach-item"><span class="attach-name">${esc(a.originalName)}</span><span class="attach-size">${formatBytes(a.size)}</span><button type="button" class="attach-remove" data-remove-attach="${a.id}" title="Quitar">×</button></div>`).join('');
+    list.querySelectorAll('[data-remove-attach]').forEach(btn=>btn.onclick=()=>{
+      pending=pending.filter(a=>a.id!==btn.dataset.removeAttach);
+      paintPending();
+    });
+  };
+  if(input){
+    input.onchange=async()=>{
+      if(!input.files?.length)return;
+      input.disabled=true;
+      try{
+        const uploaded=await uploadFiles(input.files);
+        uploaded.forEach(a=>{ if(pending.length<ATTACH_MAX_FILES)pending.push(a); });
+        paintPending();
+      }catch(err){toast(err.message||'No se pudieron subir los archivos.');}
+      finally{input.disabled=false;input.value='';}
+    };
+  }
   form.onsubmit=async e=>{
     e.preventDefault();
     const body=textarea.value.trim();
-    if(!body)return;
+    const attachmentIds=pending.map(a=>a.id);
+    if(!body&&!attachmentIds.length)return;
     const submitBtn=form.querySelector('button[type=submit]');
     submitBtn.disabled=true;
     try{
       if(target.conversationId||target.groupId){
-        const {message}=await api(chatMessagesEndpoint(target),{method:'POST',body:{body}});
+        const {message}=await api(chatMessagesEndpoint(target),{method:'POST',body:{body,attachmentIds}});
         appendChatMessage(message);
       }else{
-        const {conversation,message}=await api('/chat/conversations',{method:'POST',body:{recipientId:target.pendingRecipientId,body}});
+        const {conversation,message}=await api('/chat/conversations',{method:'POST',body:{recipientId:target.pendingRecipientId,body,attachmentIds}});
         activeChatConversationId=conversation.id;
         // Reasigna el target capturado por este mismo closure: el segundo
         // mensaje en adelante ya usa el conversationId real, sin re-wirear el form.
@@ -652,6 +853,8 @@ function wireChatComposer(target){
         refreshChatConversationList();
       }
       textarea.value='';
+      pending=[];
+      paintPending();
     }catch(err){toast(apiErrorMessage(err));}
     finally{submitBtn.disabled=false;}
   };
@@ -871,6 +1074,7 @@ async function render(id){
   }
   shell(content);wirePage();
   if(currentView==='chat')wireChatView();
+  if(currentView==='sector-detail')wireSectorCategories();
 }
 
 (async function bootstrap(){
