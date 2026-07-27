@@ -16,6 +16,9 @@ const envSchema = z.object({
     .default('false')
     .transform((value) => value.toLowerCase() === 'true'),
   STATIC_DIR: z.string().default('public'),
+  // Carpeta donde se guardan los adjuntos (montada como volumen de Docker,
+  // por eso es escribible aunque el resto del contenedor sea de solo lectura).
+  UPLOADS_DIR: z.string().default('uploads'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

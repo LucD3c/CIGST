@@ -1,6 +1,9 @@
 import { HttpError } from '../../utils/httpError';
 import * as repo from './chat.repository';
 import * as notifications from '../notifications/notifications.service';
+import * as attachments from '../attachments/attachments.service';
+
+type AttachmentView = { id: string; originalName: string; mimeType: string; size: number };
 
 const DEFAULT_PAGE_SIZE = 30;
 const POLL_PAGE_SIZE = 50;
@@ -41,6 +44,14 @@ function shapeMessage(currentUserId: string) {
   });
 }
 
+// Enriquece una tanda de mensajes con sus adjuntos en UNA sola consulta
+// (no una por burbuja).
+async function withAttachments<T extends { id: string }>(messages: T[]) {
+  if (!messages.length) return messages.map((m) => ({ ...m, attachments: [] as AttachmentView[] }));
+  const map = await attachments.mapByMessages(messages.map((m) => m.id));
+  return messages.map((m) => ({ ...m, attachments: map.get(m.id) ?? [] }));
+}
+
 export async function listConversations(currentUserId: string) {
   const conversations = await repo.findConversationsForUser(currentUserId);
   const unreadMap = await repo.countUnreadByConversation(conversations.map((c) => c.id), currentUserId);
@@ -60,7 +71,12 @@ export async function listConversations(currentUserId: string) {
   });
 }
 
-export async function startConversation(currentUserId: string, recipientId: string, body: string) {
+export async function startConversation(
+  currentUserId: string,
+  recipientId: string,
+  body: string,
+  attachmentIds?: string[],
+) {
   if (recipientId === currentUserId) {
     throw HttpError.badRequest('No podés iniciar una conversación con vos mismo.');
   }
@@ -68,14 +84,16 @@ export async function startConversation(currentUserId: string, recipientId: stri
   if (!recipient) throw HttpError.badRequest('Ese usuario no existe o no está activo.');
 
   const { conversation, message } = await repo.startConversationWithMessage(currentUserId, recipientId, body);
+  await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
   const other = otherParticipant(conversation, currentUserId);
+  const [shaped] = await withAttachments([shapeMessage(currentUserId)(message)]);
   return {
     conversation: {
       id: conversation.id,
       otherUser: { id: other.id, name: other.name, role: other.role.name, status: other.status },
       lastMessageAt: conversation.lastMessageAt,
     },
-    message: shapeMessage(currentUserId)(message),
+    message: shaped,
   };
 }
 
@@ -96,7 +114,7 @@ export async function getMessages(currentUserId: string, conversationId: string,
   const rows = await repo.findMessagesPage(conversationId, before, pageSize);
   const chronological = [...rows].reverse();
   return {
-    messages: chronological.map(shapeMessage(currentUserId)),
+    messages: await withAttachments(chronological.map(shapeMessage(currentUserId))),
     hasMore: rows.length === pageSize,
   };
 }
@@ -108,10 +126,15 @@ export async function pollNewMessages(currentUserId: string, conversationId: str
   await assertCursorBelongsToConversation(afterId, conversationId);
 
   const rows = await repo.findMessagesAfter(conversationId, afterId, POLL_PAGE_SIZE);
-  return rows.map(shapeMessage(currentUserId));
+  return withAttachments(rows.map(shapeMessage(currentUserId)));
 }
 
-export async function sendMessage(currentUserId: string, conversationId: string, body: string) {
+export async function sendMessage(
+  currentUserId: string,
+  conversationId: string,
+  body: string,
+  attachmentIds?: string[],
+) {
   const conversation = await getConversationOrThrow(conversationId);
   assertParticipant(conversation, currentUserId);
 
@@ -121,7 +144,9 @@ export async function sendMessage(currentUserId: string, conversationId: string,
   }
 
   const message = await repo.sendMessage(conversationId, currentUserId, body);
-  return shapeMessage(currentUserId)(message);
+  await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
+  const [shaped] = await withAttachments([shapeMessage(currentUserId)(message)]);
+  return shaped;
 }
 
 // El que "lee" es siempre quien llama a este endpoint: solo se marcan como
@@ -258,7 +283,7 @@ export async function getGroupMessages(currentUserId: string, groupId: string, b
   const pageSize = limit ?? DEFAULT_PAGE_SIZE;
   const rows = await repo.findGroupMessagesPage(groupId, before, pageSize);
   return {
-    messages: [...rows].reverse().map(shapeGroupMessage(currentUserId)),
+    messages: await withAttachments([...rows].reverse().map(shapeGroupMessage(currentUserId))),
     hasMore: rows.length === pageSize,
   };
 }
@@ -269,14 +294,21 @@ export async function pollGroupMessages(currentUserId: string, groupId: string, 
   const cursor = await repo.findMessageById(afterId);
   if (!cursor || cursor.groupId !== groupId) throw HttpError.badRequest('El cursor de mensajes indicado no es válido para este grupo.');
   const rows = await repo.findGroupMessagesAfter(groupId, afterId, POLL_PAGE_SIZE);
-  return rows.map(shapeGroupMessage(currentUserId));
+  return withAttachments(rows.map(shapeGroupMessage(currentUserId)));
 }
 
-export async function sendGroupMessage(currentUserId: string, groupId: string, body: string) {
+export async function sendGroupMessage(
+  currentUserId: string,
+  groupId: string,
+  body: string,
+  attachmentIds?: string[],
+) {
   await getGroupOrThrow(groupId);
   await assertGroupMember(groupId, currentUserId);
   const message = await repo.sendGroupMessage(groupId, currentUserId, body);
-  return shapeGroupMessage(currentUserId)(message);
+  await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
+  const [shaped] = await withAttachments([shapeGroupMessage(currentUserId)(message)]);
+  return shaped;
 }
 
 export async function markGroupRead(currentUserId: string, groupId: string) {

@@ -23,6 +23,19 @@ export const chatMessageRateLimiter = rateLimit({
   message: { error: 'Estás enviando mensajes demasiado rápido. Esperá unos segundos e intentá nuevamente.' },
 });
 
+// Subida de archivos: mas acotado que el limite general porque cada pedido
+// consume disco, no solo CPU. 40 subidas por usuario cada 10 minutos cubre
+// de sobra el uso real (adjuntar unas capturas a un ticket o a un chat) y
+// frena que un script llene el volumen de uploads.
+export const uploadRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => req.user?.id ?? req.ip ?? 'anonimo',
+  message: { error: 'Estás subiendo archivos demasiado rápido. Esperá unos minutos e intentá nuevamente.' },
+});
+
 // Defensa en profundidad para el resto de la API: no reemplaza a los limites
 // especificos de arriba (login, chat), es una red de contencion general para
 // que ninguna cuenta -sea por script, error de cliente o mal uso- pueda

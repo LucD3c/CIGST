@@ -9,6 +9,7 @@ import { sectorsRouter } from '../modules/sectors/sectors.routes';
 import { schedulesRouter } from '../modules/schedules/schedules.routes';
 import { chatRouter } from '../modules/chat/chat.routes';
 import { notificationsRouter } from '../modules/notifications/notifications.routes';
+import { attachmentsRouter } from '../modules/attachments/attachments.routes';
 import { apiRateLimiter } from '../middleware/rateLimit.middleware';
 
 export const apiRouter = Router();
@@ -32,3 +33,4 @@ apiRouter.use('/sectors', sectorsRouter);
 apiRouter.use('/schedules', schedulesRouter);
 apiRouter.use('/chat', chatRouter);
 apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/attachments', attachmentsRouter);

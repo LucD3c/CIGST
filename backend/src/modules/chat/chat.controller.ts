@@ -13,8 +13,12 @@ export const listConversations = asyncHandler(async (req: Request, res: Response
 });
 
 export const startConversation = asyncHandler(async (req: Request, res: Response) => {
-  const { recipientId, body } = req.body as { recipientId: string; body: string };
-  const result = await service.startConversation(req.user!.id, recipientId, body);
+  const { recipientId, body, attachmentIds } = req.body as {
+    recipientId: string;
+    body: string;
+    attachmentIds?: string[];
+  };
+  const result = await service.startConversation(req.user!.id, recipientId, body, attachmentIds);
   res.status(201).json(result);
 });
 
@@ -29,8 +33,8 @@ export const getMessages = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
-  const { body } = req.body as { body: string };
-  const message = await service.sendMessage(req.user!.id, req.params.id!, body);
+  const { body, attachmentIds } = req.body as { body: string; attachmentIds?: string[] };
+  const message = await service.sendMessage(req.user!.id, req.params.id!, body, attachmentIds);
   res.status(201).json({ message });
 });
 
@@ -78,8 +82,8 @@ export const getGroupMessages = asyncHandler(async (req: Request, res: Response)
 });
 
 export const sendGroupMessage = asyncHandler(async (req: Request, res: Response) => {
-  const { body } = req.body as { body: string };
-  const message = await service.sendGroupMessage(req.user!.id, req.params.id!, body);
+  const { body, attachmentIds } = req.body as { body: string; attachmentIds?: string[] };
+  const message = await service.sendGroupMessage(req.user!.id, req.params.id!, body, attachmentIds);
   res.status(201).json({ message });
 });
 

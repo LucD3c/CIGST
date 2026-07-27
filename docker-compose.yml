@@ -59,6 +59,11 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      # Adjuntos de tickets y chat. Es un volumen aparte para que sobreviva a
+      # los rebuild y para que sea escribible aunque el resto del contenedor
+      # sea de solo lectura.
+      - cigst_uploads:/app/uploads
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -86,3 +91,4 @@ networks:
 
 volumes:
   cigst_pgdata:
+  cigst_uploads:

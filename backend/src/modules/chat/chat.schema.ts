@@ -1,19 +1,28 @@
 import { z } from 'zod';
 
-const messageBody = z
-  .string()
-  .trim()
-  .min(1, 'El mensaje no puede estar vacío.')
-  .max(2000, 'El mensaje no puede superar los 2000 caracteres.');
+// El cuerpo puede ir vacio si el mensaje lleva al menos un adjunto (mandar
+// solo una imagen o un PDF es un caso normal en un chat).
+const messageBody = z.string().trim().max(2000, 'El mensaje no puede superar los 2000 caracteres.');
+const attachmentIds = z.array(z.string().uuid()).max(5).optional();
 
-export const startConversationSchema = z.object({
-  recipientId: z.string().uuid('El destinatario debe ser un usuario válido.'),
-  body: messageBody,
-});
+const requireBodyOrAttachment = (data: { body: string; attachmentIds?: string[] }) =>
+  data.body.length > 0 || Boolean(data.attachmentIds?.length);
+const emptyMessageError = { message: 'Escribí un mensaje o adjuntá un archivo.', path: ['body'] };
 
-export const sendMessageSchema = z.object({
-  body: messageBody,
-});
+export const startConversationSchema = z
+  .object({
+    recipientId: z.string().uuid('El destinatario debe ser un usuario válido.'),
+    body: messageBody,
+    attachmentIds,
+  })
+  .refine(requireBodyOrAttachment, emptyMessageError);
+
+export const sendMessageSchema = z
+  .object({
+    body: messageBody,
+    attachmentIds,
+  })
+  .refine(requireBodyOrAttachment, emptyMessageError);
 
 export const listMessagesQuerySchema = z
   .object({

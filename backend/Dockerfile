@@ -37,6 +37,10 @@ COPY backend/prisma ./prisma
 COPY index.html app.js styles.css ./public/
 COPY fonts ./public/fonts
 
+# Carpeta de adjuntos: se crea aca para que el volumen que compose monta
+# encima herede el dueño correcto (el contenedor corre como "cigst", no root).
+RUN mkdir -p /app/uploads
+
 RUN chown -R cigst:cigst /app
 USER cigst
 
