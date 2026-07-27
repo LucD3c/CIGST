@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Version fijada (no "latest" ni tags flotantes): actualizarla es una
+    # decision consciente, no un efecto colateral de un rebuild.
+    image: postgres:16.14-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}

@@ -1,0 +1,11 @@
+# Los scripts de shell DEBEN quedar con finales de linea LF aunque el repo se
+# clone en Windows con core.autocrlf=true: bash no tolera CRLF ("\r: command
+# not found"). Los .bat van con CRLF, que es lo que espera cmd.exe.
+*.sh    text eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binarios: nunca convertir finales de linea.
+*.png   binary
+*.pdf   binary
+*.woff  binary

@@ -1,7 +1,9 @@
 # Contexto de build: la raiz del repositorio (necesita backend/ y los archivos
 # estaticos del frontend index.html/app.js/styles.css/fonts que viven en la raiz).
+# Version de Node fijada (no un tag flotante): actualizarla es una decision
+# consciente, no un efecto colateral de un rebuild.
 
-FROM node:20-alpine AS builder
+FROM node:20.20.2-alpine AS builder
 WORKDIR /app
 # El engine de Prisma necesita OpenSSL; Alpine no lo trae por defecto.
 RUN apk add --no-cache openssl
@@ -17,7 +19,7 @@ COPY backend/src ./src
 RUN npm run build
 
 
-FROM node:20-alpine AS runtime
+FROM node:20.20.2-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apk add --no-cache openssl
