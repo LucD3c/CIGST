@@ -28,7 +28,7 @@ backend/
     db/          cliente de Prisma (PostgreSQL)
     middleware/  autenticación, autorización por rol, validación, rate limit
     modules/     auth, users, employees, equipment, tickets, logbook,
-                 sectors, schedules, chat, notifications
+                 sectors, schedules, chat, notifications, attachments
                  (cada uno: routes -> controller -> service -> repository)
     routes/      router principal de /api
   prisma/        schema.prisma, migraciones y seed inicial
@@ -120,6 +120,15 @@ de que el usuario fuerce una recarga.
   que le permite al rango User armar un ticket para cualquier persona sin
   tener acceso a los listados completos (`/employees` y `/equipment` siguen
   siendo de staff).
+- **Categorías por sector** (`/api/sectors/:id/categories`): alta y baja
+  admin-only. `GET /api/tickets/form-options` devuelve todas las categorías
+  de todos los sectores activos en una sola consulta, para que el
+  formulario cambie la lista al elegir sector sin volver a pedir nada.
+- **Adjuntos** (`/api/attachments`): `POST` sube (multipart, hasta 5
+  archivos de 10 MB) y devuelve los ids; el ticket o mensaje se crea después
+  mandando esos ids en `attachmentIds`. `GET /api/attachments/:id` descarga,
+  validando primero que quien pide pueda ver el ticket o el mensaje que lo
+  contiene (mismas reglas que el recurso padre, sin bypass por rol).
 - **Historiales de cambios**: `utils/changeLog.ts` compara antes/después en
   los services de employees/equipment/users y antepone la línea al campo
   `changeLog`; la zona horaria de esas marcas sale de `TZ` (compose la pasa,

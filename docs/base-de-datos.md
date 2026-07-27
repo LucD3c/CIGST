@@ -12,6 +12,8 @@
 | User | `users` | Cuenta que puede iniciar sesión |
 | Session | `sessions` | Sesión activa (solo el hash del token, nunca el token) |
 | Sector | `sectors` | Área/ubicación de la empresa (catálogo compartido) |
+| TicketCategory | `ticket_categories` | Categorías de ticket **propias de cada sector** |
+| Attachment | `attachments` | Archivo adjunto de un ticket o de un mensaje |
 | Schedule | `schedules` | Turno de soporte (nombre + hora inicio/fin) |
 | Employee | `employees` | Persona de la empresa (puede no tener cuenta) |
 | Equipment | `equipment` | Equipo informático, vinculado a un sector |
@@ -39,6 +41,30 @@
   conversaciones de chat (con los mensajes adentro) se borran en cascada.
 - **Conversation / Message**: sin `deletedAt` — el alcance actual no incluye
   borrar ni editar mensajes, así que el campo no tendría uso.
+- **TicketCategory**: se elimina de verdad. El Ticket guarda el **nombre**
+  de la categoría como texto (una foto del momento), no una FK — así borrar
+  una categoría deja de ofrecerla en el formulario sin alterar el historial
+  de tickets que ya la usaron.
+- **Attachment**: se elimina de verdad junto con su archivo físico. Los que
+  quedan "sueltos" (subidos pero nunca enviados) los borra una rutina
+  automática pasadas 24 h.
+
+## Categorías de ticket por sector
+
+`TicketCategory` tiene `@@unique([sectorId, name])`: dos sectores pueden
+tener una categoría con el mismo nombre sin pisarse. Al crear un ticket, el
+backend valida que la categoría pertenezca al sector elegido; si ese sector
+todavía no tiene ninguna cargada (o el ticket no lleva sector), se acepta
+`General` — nunca se bloquea a alguien que necesita pedir ayuda porque falta
+configurar el catálogo.
+
+## Adjuntos
+
+Un `Attachment` pertenece a un ticket **o** a un mensaje (`ticketId` XOR
+`messageId`); recién subido tiene ambos en `NULL` hasta que el ticket o
+mensaje que lo referencia se crea. El archivo físico vive en el volumen
+`cigst_uploads` con un nombre aleatorio (`storedName`) generado por el
+servidor: el nombre original del usuario nunca llega al sistema de archivos.
 
 ## Relación central
 

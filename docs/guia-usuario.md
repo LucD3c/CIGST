@@ -45,7 +45,7 @@ desde el Panel administrador.
 | --- | --- |
 | **Administrador** | Todo: crea y edita personas, usuarios, equipos, sectores y turnos (cada edición deja registro de cambios), gestiona tickets, usa el chat, crea los grupos, y es el único que ve Bitácora técnica y Panel administrador. |
 | **Supervisor** | Ve todo el trabajo de soporte y lo opera: crea y gestiona tickets de cualquiera. Ve personas, equipos y sectores con sus historiales, pero **no puede crear ni editar** esos catálogos. No ve Bitácora ni Panel administrador. |
-| **User** | Crea tickets para sí mismo o para cualquier persona, ve solo sus propias solicitudes, y usa el chat (1 a 1 y los grupos donde lo agregaron). Nada más. |
+| **User** | Crea tickets para sí mismo o para cualquier persona (con adjuntos), ve solo sus propias solicitudes, y usa el chat (1 a 1 y los grupos donde lo agregaron). Nada más. |
 
 Los permisos se controlan en el servidor: lo que tu rango no permite, la
 plataforma lo rechaza aunque se intente por otra vía.
@@ -79,8 +79,13 @@ asignado a vos, y alta en un grupo de chat.
 
 **Crear** (cualquier rango): + Nuevo ticket / + Solicitar soporte → elegí a
 la **persona a asistir** (vos u otra persona), título breve, descripción, y
-si corresponde el **equipo** — al elegirlo, el **sector se completa solo**
-con el sector actual de ese equipo. La fecha y hora se registran solas.
+si corresponde el **equipo o espacio** — al elegirlo, el **sector se
+completa solo**. La **categoría** cambia según el sector elegido: cada área
+tiene las suyas. La fecha y hora se registran solas.
+
+También podés **adjuntar archivos** (imágenes, PDF o planillas): hasta 5 por
+ticket, de 10 MB cada uno. Es la forma más rápida de mostrar el problema —
+una captura de pantalla vale más que tres párrafos de descripción.
 
 ![Nuevo ticket](img/ticket-nuevo.png)
 
@@ -102,25 +107,46 @@ Administrador**; cada edición deja una línea automática en el panel
 
 ---
 
-## Equipamiento y su historial de cambios
+## Equipos y espacios
 
-Cada equipo vive en un sector. **Editar es del Administrador**: cada cambio
-de modelo, sector o estado queda registrado automáticamente en el panel
-**Cambios** del equipo, con el valor anterior y el nuevo. Ese historial
-permite ver, por ejemplo, si un sector tiene demasiada rotación de equipos.
-No conviene crear un equipo nuevo al reemplazar uno: se edita el existente y
-el historial guarda lo que había antes.
+No es solo inventario informático: acá va **cualquier cosa sobre la que se
+pueda pedir ayuda**. Una PC o una impresora, sí — pero también un
+**consultorio**, una **sala**, una **oficina**, una **puerta** o una
+**instalación**. Por eso el tipo incluye tanto equipos como espacios, y el
+nombre puede ser un modelo ("Dell OptiPlex") o una identificación de lugar
+("Consultorio 213").
+
+La idea **no** es cargar cada objeto de la empresa: solo lo que
+efectivamente recibe pedidos. Si el pedido es "arreglar la puerta del
+consultorio 213", alcanza con tener cargado ese consultorio y describir el
+arreglo en la descripción del ticket.
+
+Cada uno vive en un sector. **Editar es del Administrador**: cada cambio de
+nombre, sector o estado queda registrado automáticamente en el panel
+**Cambios**, con el valor anterior y el nuevo. No conviene crear uno nuevo
+al reemplazar un equipo: se edita el existente y el historial guarda lo que
+había antes.
 
 ---
 
-## Sectores y turnos
+## Sectores, turnos y categorías
 
 ![Sectores](img/sectores.png)
 
-Las áreas de la empresa. El detalle de un sector muestra sus personas y
-equipos — ambos clickeables, útil cuando dos equipos se llaman igual en
-sectores distintos. En la misma pantalla se definen los turnos de soporte.
-Crear y editar es del Administrador.
+Las áreas de la empresa. El detalle de un sector muestra:
+
+- Sus **personas** y sus **equipos y espacios** (clickeables, útil cuando
+  dos se llaman igual en sectores distintos).
+- Sus **categorías de ticket**: las que van a aparecer al crear un ticket
+  dirigido a ese sector. Un Administrador las agrega y elimina desde ahí
+  mismo. Ejemplo: Sistemas puede tener "Hardware", "Red / conectividad";
+  Mantenimiento, "Arreglar", "Modificación"; y cada área las suyas.
+
+Al eliminar una categoría, los tickets que ya la usaron **no se modifican**
+— simplemente deja de ofrecerse para tickets nuevos.
+
+En la misma pantalla se definen los turnos de soporte. Todo esto lo
+administra el Administrador; el Supervisor lo ve.
 
 ---
 
@@ -131,6 +157,10 @@ Crear y editar es del Administrador.
 Chateá con cualquier persona de la plataforma. Los **grupos aparecen siempre
 primeros** en la lista, con su etiqueta. Enter envía, Shift+Enter baja de
 línea, y el badge azul avisa los mensajes sin leer.
+
+El botón 📎 permite **adjuntar archivos** (imágenes, PDF, planillas). Las
+imágenes se ven directamente en la conversación; el resto aparece como una
+tarjeta para descargar. Se puede mandar un archivo sin escribir nada.
 
 - **Grupos**: los crea el Administrador (+ Nuevo grupo), elige integrantes de
   cualquier rango (cada uno recibe una notificación), y puede editarlos o

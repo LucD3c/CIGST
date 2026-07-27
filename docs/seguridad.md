@@ -96,18 +96,72 @@ normal de la interfaz (incluido el polling del chat y de notificaciones)
 queda muy por debajo: el techo existe para el caso anómalo, no para el uso
 cotidiano.
 
+## Archivos adjuntos
+
+Los adjuntos (imágenes, PDF, planillas en tickets y chat) son el punto de
+entrada más delicado de la plataforma, así que llevan defensas propias:
+
+- **El tipo se determina por los bytes reales, no por lo que declara el
+  cliente.** Después de escribir el archivo se leen sus primeros bytes y se
+  compara con las firmas conocidas (PNG, JPEG, GIF, WEBP, PDF, XLSX, XLS);
+  si no coincide con ninguna, el archivo se borra y la subida se rechaza —
+  aunque la extensión y el `Content-Type` declarado fueran válidos.
+  Verificado subiendo un HTML con `<script>` renombrado a `.png` y un
+  ejecutable renombrado a `.pdf`: ambos rechazados.
+- **Sin SVG ni HTML**: son los únicos formatos "de imagen/documento" que un
+  navegador ejecutaría como código si se mostraran embebidos.
+- **Solo las imágenes se sirven `inline`**; todo lo demás va con
+  `Content-Disposition: attachment`, así el navegador nunca interpreta un
+  PDF o una planilla dentro del origen de la aplicación. Siempre con
+  `X-Content-Type-Options: nosniff`.
+- **El nombre en disco lo genera el servidor** (UUID + extensión de una
+  lista blanca): el nombre original del usuario nunca toca el sistema de
+  archivos, así que no hay forma de escapar del directorio (path traversal)
+  ni de sobrescribir archivos existentes.
+- **Permisos de descarga heredados del recurso padre**: un adjunto de ticket
+  lo ve quien puede ver ese ticket; uno de chat, solo los participantes de
+  esa conversación o los miembros de ese grupo — **sin bypass por rol**
+  (verificado: un Supervisor ajeno a la conversación recibe `403`). Un
+  adjunto todavía sin enviar solo lo ve quien lo subió.
+- **No se pueden usar adjuntos ajenos ni reutilizar uno ya enviado**: al
+  crear el ticket o mensaje se valida que cada id sea del propio usuario y
+  esté sin vincular (verificado con intentos reales de ambos casos).
+- **Límites**: 10 MB por archivo, 5 archivos por envío, y un límite de
+  subida propio (40 cada 10 minutos por usuario) más acotado que el general
+  porque cada subida consume disco, no solo CPU.
+- **Limpieza automática**: los adjuntos que se suben pero nunca se envían se
+  borran (archivo + registro) pasadas 24 h, con una rutina que corre al
+  arrancar y cada 6 h. Verificado: 24 huérfanos eliminados, los vinculados
+  intactos, disco de 104,8 MB a 112 KB.
+
+### Rendimiento (medido, no estimado)
+
+La subida y la descarga van **en streaming a disco**, nunca cargando el
+archivo entero en memoria. Medición real sobre el contenedor:
+
+| Escenario | RAM del backend |
+| --- | --- |
+| En reposo | 30,6 MB |
+| Tras subir 95 MB (10 archivos de 9,5 MB) | 40,9 MB |
+| Durante 8 descargas simultáneas de 9,5 MB | 54,2 MB |
+
+Es decir: +10 MB de RAM para 95 MB de archivos. Con almacenamiento en
+memoria (el otro modo posible) esas mismas subidas habrían reservado ~95 MB.
+El volumen de adjuntos es independiente del de la base, así que el disco se
+puede monitorear y limpiar por separado.
+
 ## Endurecimiento de los contenedores
 
 - Los 3 servicios corren con `security_opt: no-new-privileges:true`:
   ningún proceso dentro del contenedor puede escalar privilegios vía
   binarios `setuid`/`setgid`, aunque existieran.
 - El contenedor `app` corre con **sistema de archivos de solo lectura**
-  (`read_only: true`, con `/tmp` aparte en memoria vía `tmpfs`). El
-  servidor Node no necesita escribir nada propio en tiempo de ejecución
-  (sirve estáticos ya compilados, no guarda archivos subidos, loguea a
-  stdout) — si una dependencia comprometida intentara escribir un archivo
-  en el contenedor (por ejemplo, para persistir un webshell), el sistema
-  de archivos lo rechaza directamente.
+  (`read_only: true`, con `/tmp` en memoria vía `tmpfs` y el volumen de
+  adjuntos montado en `/app/uploads`). Fuera de esos dos puntos, si una
+  dependencia comprometida intentara escribir un archivo en el contenedor
+  (por ejemplo, para persistir un webshell), el sistema de archivos lo
+  rechaza. Verificado tras agregar los adjuntos: `/app/uploads` escribible,
+  `/app/hack.js` → `Read-only file system`.
 - El proceso del backend corre como usuario **no root** dentro del
   contenedor (`USER cigst`, ver `backend/Dockerfile`).
 - PostgreSQL no expone ningún puerto al host (arriba).

@@ -3,7 +3,7 @@
 # CIGST
 ### Centro Integral de Gestión de Soporte Técnico
 
-**Tickets · Personas · Equipamiento · Sectores · Chat interno · Notificaciones**
+**Tickets con adjuntos · Categorías por sector · Personas · Equipos y espacios · Chat interno · Notificaciones**
 
 Todo en un solo lugar, corriendo **100% dentro de la red de la empresa** —
 sin depender de internet ni de ningún servicio externo, en ningún momento.
@@ -28,11 +28,16 @@ sin depender de internet ni de ningún servicio externo, en ningún momento.
 
 ## ¿Qué es CIGST?
 
-CIGST es la plataforma interna de soporte técnico de la empresa: reemplaza
-la planilla, el grupo de chat externo y las hojas sueltas por un único
-sistema donde cualquier persona pide ayuda, el equipo de soporte la
-resuelve, y todo queda registrado — quién pidió qué, quién lo atendió, qué
-equipo estaba involucrado, y cuándo.
+CIGST es la plataforma interna de pedidos de la empresa: reemplaza la
+planilla, el grupo de chat externo y las hojas sueltas por un único sistema
+donde cualquier persona pide ayuda, el área correspondiente la resuelve, y
+todo queda registrado — quién pidió qué, quién lo atendió, sobre qué equipo
+o espacio, y cuándo.
+
+No es solo para Sistemas: **cada sector que recibe pedidos define sus
+propias categorías**. Sistemas puede tener "Hardware" y "Red";
+Mantenimiento, "Arreglar" y "Modificación"; y así con cada área. El
+formulario de ticket se adapta solo al sector elegido.
 
 Se instala con un solo comando, en una sola máquina de la red interna, y el
 resto de la empresa accede desde el navegador de siempre. **Nunca sale un
@@ -44,7 +49,9 @@ el detalle completo de esa garantía.
 | Sin CIGST | Con CIGST |
 | --- | --- |
 | Pedidos de soporte por chat/mail, se pierden entre mensajes | Un ticket por pedido, con estado, prioridad e historial |
-| Nadie sabe qué equipo tiene cada sector, ni sus cambios | Inventario por sector, con historial automático de cada edición |
+| Cada área improvisa cómo clasificar sus pedidos | Cada sector define sus propias categorías de ticket |
+| Las capturas del problema van por otro canal | Imágenes, PDF y planillas adjuntos al ticket o al chat |
+| Nadie sabe qué equipo o espacio tiene cada sector | Inventario por sector, con historial automático de cada edición |
 | El acceso a la info depende de quién pregunte primero | Permisos por rol, los mismos para todos, validados en el servidor |
 | Coordinación por WhatsApp/email externo | Chat interno (1 a 1 y grupos) sin salir de la red de la empresa |
 | Nadie se entera de un cambio salvo que lo busque | Notificaciones dentro de la plataforma, con un click al destino |
@@ -54,15 +61,23 @@ el detalle completo de esa garantía.
 - 🎫 **Tickets** — alta en segundos (todo por listas desplegables), estado,
   prioridad, responsable asignado y solución aplicada. Menú de acciones
   rápidas para resolver/cerrar/asignarse sin abrir el detalle.
+- 🏷️ **Categorías por sector** — cada área que recibe pedidos define las
+  suyas ("Hardware" o "Red" para Sistemas; "Arreglar" o "Modificación" para
+  Mantenimiento). Al elegir el sector en un ticket, la lista de categorías
+  se ajusta sola a ese sector.
+- 📎 **Archivos adjuntos** — imágenes, PDF y planillas en tickets y en el
+  chat. Las imágenes se ven directamente; el resto se descarga. Hasta 5
+  archivos de 10 MB por vez.
 - 👤 **Personas** — ficha por colaborador con su sector, contacto, horario y
   tickets. Cada edición queda en un historial de cambios automático.
-- 🖥️ **Equipamiento** — inventario por sector, editable, con **historial de
-  cambios automático** (qué cambió, de qué valor a qué valor, cuándo) — útil
-  para detectar sectores con demasiada rotación de equipos.
-- 🏢 **Sectores y turnos** — catálogo compartido por Personas, Equipos y
+- 🏢 **Equipos y espacios** — no solo inventario informático: también
+  consultorios, salas, puertas o instalaciones — cualquier cosa sobre la
+  que se pida ayuda. Editable, con **historial de cambios automático** (qué
+  cambió, de qué valor a qué valor, cuándo).
+- 🗂️ **Sectores y turnos** — catálogo compartido por Personas, Equipos y
   Tickets; los turnos de soporte se configuran una vez por empresa.
 - 💬 **Chat interno** — mensajería 1 a 1 y grupos (los crea un
-  Administrador), 100% tráfico local, con badge de no leídos.
+  Administrador), 100% tráfico local, con badge de no leídos y adjuntos.
 - 🔔 **Notificaciones** — campanita con lo que te corresponde a vos: ticket
   nuevo, cambio de estado, asignación, alta en un grupo. Un click te lleva
   al lugar exacto.
