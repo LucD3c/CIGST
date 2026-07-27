@@ -442,7 +442,29 @@ function categoryOptionsHtml(sectorId){
   if(!names.length)return `<option value="">${esc(sectorId?'Este sector no tiene categorías cargadas':'Elegí un sector primero')}</option>`;
   return names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
 }
-function ticketFields(defaultPersonId=''){const person=employee(defaultPersonId);const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`])];const peopleOptions=store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]);const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`])];const sectorId=person?.sectorId||'';return select('employee','Persona a asistir',peopleOptions,defaultPersonId)+select('requestedBy','Solicitud informada por',peopleOptions,defaultPersonId)+field('title','Título breve','text','form-span')+select('equipment','Equipo o espacio relacionado',equipmentOptions)+sectorField(sectorId)+`<div class="field"><label>Categoría</label><select name="category">${categoryOptionsHtml(sectorId)}</select></div>`+select('priority','Prioridad',['Media','Baja','Alta','Crítica'])+select('scheduleId','Turno de soporte',scheduleOptions)+requiredTextArea('description','Descripción del inconveniente','form-span')+attachmentField('ticket-attach');}
+function ticketFields(defaultPersonId=''){
+  const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`])];
+  const peopleOptions=store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]);
+  const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`])];
+  // Si no se indica una persona, el desplegable igual va a mostrar la primera
+  // de la lista: se usa ESA para el sector y las categorias iniciales, asi el
+  // formulario arranca coherente con lo que se ve seleccionado (antes el
+  // sector quedaba "Sin definir", la lista de categorias vacia, y al guardar
+  // el backend exigia una categoria que nunca se habia podido elegir).
+  const personId=defaultPersonId||store.employees[0]?.id||'';
+  const person=employee(personId);
+  const sectorId=person?.sectorId||'';
+  return select('employee','Persona a asistir',peopleOptions,personId)
+    +select('requestedBy','Solicitud informada por',peopleOptions,personId)
+    +field('title','Título breve','text','form-span')
+    +select('equipment','Equipo o espacio relacionado',equipmentOptions)
+    +sectorField(sectorId)
+    +`<div class="field"><label>Categoría</label><select name="category">${categoryOptionsHtml(sectorId)}</select></div>`
+    +select('priority','Prioridad',['Media','Baja','Alta','Crítica'])
+    +select('scheduleId','Turno de soporte',scheduleOptions)
+    +requiredTextArea('description','Descripción del inconveniente','form-span')
+    +attachmentField('ticket-attach');
+}
 async function createTicket(values,attachIds){const payload={title:values.get('title'),description:values.get('description'),employeeId:values.get('employee')||'',requestedById:values.get('requestedBy')||'',equipmentId:values.get('equipment')||'',sectorId:values.get('sectorId')||'',scheduleId:values.get('scheduleId')||'',category:values.get('category')||'',priority:values.get('priority'),attachmentIds:attachIds||[]};const {ticket}=await api('/tickets',{method:'POST',body:payload});store.tickets.unshift(normalizeTicket(ticket));}
 // Al elegir un equipo/espacio, el sector se completa solo con el sector
 // ACTUAL de ese equipo (siempre sincronizado). Al cambiar la persona, se

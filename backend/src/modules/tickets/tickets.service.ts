@@ -40,18 +40,29 @@ async function assertScheduleValid(scheduleId: string | null | undefined) {
   if (!found) throw HttpError.badRequest('El turno indicado no existe.');
 }
 
-// La categoria tiene que ser una de las que definio ESE sector. Si el sector
-// todavia no tiene ninguna cargada (o el ticket no lleva sector), se acepta
-// la categoria por defecto: nunca se bloquea a alguien que necesita pedir
-// ayuda porque falta configurar el catalogo.
-async function resolveCategory(sectorId: string | null | undefined, category: string | undefined) {
+// La categoria tiene que ser una de las que definio ESE sector.
+//
+// "sectorWasChosen" distingue el sector elegido a mano del deducido de la
+// persona a asistir: si el sector se dedujo, no se exige categoria (el
+// formulario no tenia como ofrecerla), simplemente queda la de por defecto.
+// Y si el sector todavia no tiene ninguna categoria cargada, tampoco se
+// exige: nunca se bloquea a alguien que necesita pedir ayuda porque falta
+// configurar el catalogo.
+async function resolveCategory(
+  sectorId: string | null | undefined,
+  category: string | undefined,
+  sectorWasChosen: boolean,
+) {
   const requested = category?.trim();
   if (!sectorId) return requested || DEFAULT_CATEGORY;
 
   const available = await sectorsRepo.countCategories(sectorId);
   if (available === 0) return requested || DEFAULT_CATEGORY;
 
-  if (!requested) throw HttpError.badRequest('Elegí una categoría para el sector seleccionado.');
+  if (!requested) {
+    if (!sectorWasChosen) return DEFAULT_CATEGORY;
+    throw HttpError.badRequest('Elegí una categoría para el sector seleccionado.');
+  }
   const found = await sectorsRepo.findCategoryByName(sectorId, requested);
   if (!found) throw HttpError.badRequest('Esa categoría no corresponde al sector elegido.');
   return found.name;
@@ -124,8 +135,9 @@ export async function create(user: SessionUser, data: CreateTicketInput) {
   await assertScheduleValid(data.scheduleId);
 
   const affected = await employeesRepo.findById(employeeId);
+  const sectorWasChosen = Boolean(data.sectorId);
   const sectorId = data.sectorId ?? affected?.sectorId ?? null;
-  const category = await resolveCategory(sectorId, data.category);
+  const category = await resolveCategory(sectorId, data.category, sectorWasChosen);
 
   const ticket = await repo.create({
     title: data.title,
