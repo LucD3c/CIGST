@@ -17,19 +17,32 @@ interfaz oculta también está bloqueado en la API (devuelve `403`):
 
 | | Administrador | Supervisor | User |
 | --- | :-: | :-: | :-: |
-| Centro de operaciones / Tickets de todos | ✅ | ✅ | solo los propios |
-| Personas / Equipamiento / Sectores y Turnos | ✅ | ✅ | ❌ (solo lectura de catálogos para crear su ticket) |
+| Crear/gestionar tickets (de cualquiera) | ✅ | ✅ | solo crear; ve únicamente los propios |
+| Ver Personas / Equipamiento / Sectores y Turnos | ✅ | ✅ (solo lectura) | ❌ (solo un directorio mínimo vía `/tickets/form-options` para armar su ticket) |
+| Crear/editar/borrar Personas, Equipos, Sectores, Turnos | ✅ (con log de cambios) | ❌ | ❌ |
 | Bitácora técnica | ✅ | ❌ | ❌ |
 | Panel administrador (usuarios) | ✅ | ❌ | ❌ |
-| Chat interno | ✅ | ✅ | ✅ |
+| Chat interno (1 a 1 y grupos donde es miembro) | ✅ | ✅ | ✅ |
+| Crear/editar grupos de chat | ✅ | ❌ | ❌ |
+| Notificaciones propias (campanita) | ✅ | ✅ | ✅ |
+
+### Historiales de cambios (auditoría liviana)
+
+Cada edición de una Persona, un Equipo o una cuenta de Usuario deja una
+línea automática en su campo `changeLog` — "26/07/2026 21:14 — Sector: «A» →
+«B»" — generada **solo por el backend** (el cliente nunca puede escribirla).
+De una contraseña solo se registra el hecho ("Contraseña actualizada"),
+jamás el valor. Los ven Admin (y Supervisor donde tiene lectura).
 
 ## Privacidad del chat
 
 Un usuario solo puede leer o escribir en una conversación de la que es
-participante — verificado explícitamente por API con un usuario ajeno, que
-recibe `403` al intentar leer, escribir o marcar como leída una conversación
-entre otras dos personas. **Esto rige también para Administrador: no hay
-bypass por rol.** Es una decisión deliberada de privacidad. La contracara:
+participante, y en un grupo del que es **miembro** — verificado
+explícitamente por API con un usuario ajeno, que recibe `403` al intentar
+leer, escribir o marcar como leído tanto un 1 a 1 como un grupo ajeno.
+**Esto rige también para Administrador: no hay bypass por rol** (el admin
+crea y administra los grupos, pero para leerlos tiene que ser miembro — al
+crear uno queda incluido automáticamente). Es una decisión deliberada de privacidad. La contracara:
 hoy no existe un camino de auditoría dentro de la plataforma para investigar
 un reclamo de mal uso del chat (los mensajes viven en Postgres, así que un
 export a nivel de base sigue siendo posible como último recurso). Si se

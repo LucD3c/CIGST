@@ -28,7 +28,7 @@ backend/
     db/          cliente de Prisma (PostgreSQL)
     middleware/  autenticación, autorización por rol, validación, rate limit
     modules/     auth, users, employees, equipment, tickets, logbook,
-                 sectors, schedules, chat
+                 sectors, schedules, chat, notifications
                  (cada uno: routes -> controller -> service -> repository)
     routes/      router principal de /api
   prisma/        schema.prisma, migraciones y seed inicial
@@ -85,13 +85,31 @@ consciente, no un efecto colateral de un rebuild.
 - `GET /api/logbook` (y toda la Bitácora técnica) es exclusivo de
   Administrador.
 - **Chat** (`/api/chat/*`): sin restricción por rol — la única condición es
-  ser participante de la conversación. `POST /api/chat/conversations` crea
-  la conversación si no existía (par canónico de usuarios: los dos ids
-  siempre en el mismo orden alfabético, imposible duplicar el par) y manda
-  el primer mensaje en la misma transacción. La paginación de mensajes es
-  por cursor (`before`/`after`, mutuamente excluyentes) ordenada por
-  `createdAt` **e** `id` como desempate — con un solo campo de orden, dos
-  mensajes del mismo milisegundo hacían saltear filas al cursor.
+  ser participante de la conversación (o miembro del grupo). `POST
+  /api/chat/conversations` crea la conversación si no existía (par canónico
+  de usuarios: los dos ids siempre en el mismo orden alfabético, imposible
+  duplicar el par) y manda el primer mensaje en la misma transacción. La
+  paginación de mensajes es por cursor (`before`/`after`, mutuamente
+  excluyentes) ordenada por `createdAt` **e** `id` como desempate — con un
+  solo campo de orden, dos mensajes del mismo milisegundo hacían saltear
+  filas al cursor.
+- **Grupos de chat** (`/api/chat/groups/*`): crear/editar/borrar es
+  admin-only; leer/escribir es de los miembros (tabla `chat_group_members`,
+  "leído" por miembro vía `lastReadAt`). Un `Message` pertenece a una
+  conversación 1 a 1 **o** a un grupo (`conversationId` XOR `groupId`).
+- **Notificaciones** (`/api/notifications/*`): cada usuario ve solo las
+  suyas (el repositorio filtra por `userId` hasta en el mark-read). Las
+  emiten los services de tickets (ticket nuevo → staff; cambio de estado →
+  creador y afectado; asignación → responsable) y de chat (alta en grupo).
+- **`GET /api/tickets/form-options`**: personas/equipos/sectores/turnos
+  activos en versión mínima, accesible a cualquier rol autenticado — es lo
+  que le permite al rango User armar un ticket para cualquier persona sin
+  tener acceso a los listados completos (`/employees` y `/equipment` siguen
+  siendo de staff).
+- **Historiales de cambios**: `utils/changeLog.ts` compara antes/después en
+  los services de employees/equipment/users y antepone la línea al campo
+  `changeLog`; la zona horaria de esas marcas sale de `TZ` (compose la pasa,
+  por defecto America/Argentina/Buenos_Aires).
 
 ## Decisión: chat por polling HTTP (no WebSocket/SSE)
 

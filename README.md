@@ -1,9 +1,10 @@
 # CIGST — Centro Integral de Gestión de Soporte Técnico
 
 Plataforma interna para gestionar el soporte técnico de una empresa:
-tickets, personas, equipamiento, sectores y chat interno — todo en un solo
-lugar, corriendo **100% dentro de la red de la empresa**, sin depender de
-internet ni de servicios externos.
+tickets, personas, equipamiento con historial de cambios, sectores, chat
+interno con grupos y notificaciones — todo en un solo lugar, corriendo
+**100% dentro de la red de la empresa**, sin depender de internet ni de
+servicios externos.
 
 ![Centro de operaciones de CIGST](docs/img/centro-de-operaciones.png)
 
@@ -70,9 +71,9 @@ enseguida.
 
 ## Documentación
 
-- **[Guía de usuario](docs/guia-usuario.md)** — cómo se usa la plataforma
-  día a día, con capturas de pantalla, pensada para cualquier persona
-  (también disponible en [PDF](docs/Guia-de-usuario-CIGST.pdf)).
+- **[Manual de uso](docs/guia-usuario.md)** — cómo se usa la plataforma
+  día a día, paso a paso y con capturas de pantalla, pensado para cualquier
+  persona (también disponible en [PDF](docs/Manual-de-uso-CIGST.pdf)).
 - **[Arquitectura técnica](docs/arquitectura.md)** — stack, estructura del
   código, decisiones de diseño y notas de API.
 - **[Modelo de datos](docs/base-de-datos.md)** — entidades, convenciones y
