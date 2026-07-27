@@ -40,6 +40,25 @@ async function main() {
     sectors.set(name, sector.id);
   }
 
+  // Categorias de ticket de referencia, propias de cada sector: muestran la
+  // idea de que cada area define las suyas (Sistemas recibe pedidos
+  // informaticos; Administracion, pedidos administrativos).
+  const categoryDefs: Record<string, string[]> = {
+    Sistemas: ['Acceso / contraseña', 'Aplicación / sistema', 'Hardware', 'Impresión', 'Red / conectividad'],
+    Administración: ['Consulta', 'Documentación', 'Otro'],
+  };
+  for (const [sectorName, names] of Object.entries(categoryDefs)) {
+    const sectorId = sectors.get(sectorName);
+    if (!sectorId) continue;
+    for (const name of names) {
+      await prisma.ticketCategory.upsert({
+        where: { sectorId_name: { sectorId, name } },
+        update: {},
+        create: { sectorId, name },
+      });
+    }
+  }
+
   // Turnos de soporte de referencia.
   const scheduleDefs = [
     { name: 'Mañana', startTime: '07:30', endTime: '14:30' },

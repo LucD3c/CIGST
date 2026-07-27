@@ -56,6 +56,7 @@ model User {
   notifications        Notification[]
   chatGroupsCreated    ChatGroup[]       @relation("ChatGroupCreator")
   chatGroupMemberships ChatGroupMember[]
+  attachmentsUploaded  Attachment[]
 
   @@index([roleId])
   @@index([employeeId])
@@ -91,11 +92,29 @@ model Sector {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  employees Employee[]
-  equipment Equipment[]
-  tickets   Ticket[]
+  employees  Employee[]
+  equipment  Equipment[]
+  tickets    Ticket[]
+  categories TicketCategory[]
 
   @@map("sectors")
+}
+
+// Categorias de ticket POR SECTOR: cada sector que recibe pedidos define las
+// suyas ("Hardware" para Sistemas, "Arreglar"/"Modificacion" para
+// Mantenimiento, etc.). El Ticket guarda el NOMBRE como texto (snapshot):
+// borrar una categoria no rompe los tickets historicos que la usaron.
+model TicketCategory {
+  id        String   @id @default(uuid())
+  sectorId  String   @map("sector_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sector Sector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@unique([sectorId, name])
+  @@index([sectorId])
+  @@map("ticket_categories")
 }
 
 model Schedule {
@@ -199,6 +218,7 @@ model Ticket {
   createdBy   User?      @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   logbookEntries LogbookEntry[]
+  attachments    Attachment[]
 
   @@index([employeeId])
   @@index([requestedById])
@@ -248,6 +268,7 @@ model Message {
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   group        ChatGroup?    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sender       User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
 
   @@index([conversationId, createdAt])
   @@index([groupId, createdAt])
@@ -285,6 +306,32 @@ model ChatGroupMember {
   @@unique([groupId, userId])
   @@index([userId])
   @@map("chat_group_members")
+}
+
+// Archivos adjuntos (imagenes, PDF, Excel) de tickets y mensajes de chat.
+// El archivo fisico vive en el volumen de uploads con un nombre aleatorio
+// (storedName); aca solo los metadatos. Un adjunto pertenece a un ticket O a
+// un mensaje; recien subido esta "suelto" (ambos null) hasta que el ticket o
+// mensaje que lo referencia se crea. Los sueltos viejos se limpian solos.
+model Attachment {
+  id           String   @id @default(uuid())
+  storedName   String   @unique @map("stored_name")
+  originalName String   @map("original_name")
+  mimeType     String   @map("mime_type")
+  size         Int
+  ticketId     String?  @map("ticket_id")
+  messageId    String?  @map("message_id")
+  uploadedById String?  @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ticket     Ticket?  @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  message    Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  uploadedBy User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@index([uploadedById])
+  @@map("attachments")
 }
 
 // Notificaciones internas (campanita): las genera el backend ante eventos
