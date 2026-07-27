@@ -14,15 +14,10 @@ export const ticketStatusValues = [
 
 export const ticketPriorityValues = ['Baja', 'Media', 'Alta', 'Crítica'] as const;
 
-export const ticketCategoryValues = [
-  'Acceso / contraseña',
-  'Aplicación / sistema',
-  'Hardware',
-  'Impresión',
-  'Red / conectividad',
-  'Telefonía',
-  'Otro',
-] as const;
+// La categoria dejo de ser una lista fija: cada sector define las suyas
+// desde su propia pantalla (ver TicketCategory). El ticket guarda el NOMBRE
+// como texto, asi borrar una categoria no altera el historial ya cargado.
+export const DEFAULT_CATEGORY = 'General';
 
 // "Impacto" se unificó con "Prioridad": quien pide ayuda no siempre sabe (ni
 // tiene tiempo de averiguar) si el problema afecta a todo el sector o solo a
@@ -38,8 +33,9 @@ const ticketSharedFields = {
   equipmentId: nullableUuid,
   sectorId: nullableUuid,
   scheduleId: nullableUuid,
-  category: z.enum(ticketCategoryValues),
+  category: z.string().trim().max(80).optional(),
   priority: z.enum(ticketPriorityValues).optional(),
+  attachmentIds: z.array(z.string().uuid()).max(5).optional(),
 };
 
 // Alta unificada: cualquier rol puede crear un ticket para cualquier persona
@@ -56,7 +52,6 @@ export const updateTicketSchema = z.object({
   priority: z.enum(ticketPriorityValues).optional(),
   technicianId: nullableUuid,
   solution: optionalText(4000),
-  timeSpent: optionalText(50),
 });
 
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;

@@ -8,6 +8,8 @@ import * as notifications from '../notifications/notifications.service';
 import { prisma } from '../../db/prisma';
 import type { SessionUser } from '../auth/auth.service';
 import { ROLES } from '../../middleware/rbac.middleware';
+import * as attachments from '../attachments/attachments.service';
+import { DEFAULT_CATEGORY } from './tickets.schema';
 import type { CreateTicketInput, UpdateTicketInput } from './tickets.schema';
 
 async function assertEmployeeExists(id: string, label: string) {
@@ -36,6 +38,23 @@ async function assertScheduleValid(scheduleId: string | null | undefined) {
   if (!scheduleId) return;
   const found = await schedulesRepo.existsActive(scheduleId);
   if (!found) throw HttpError.badRequest('El turno indicado no existe.');
+}
+
+// La categoria tiene que ser una de las que definio ESE sector. Si el sector
+// todavia no tiene ninguna cargada (o el ticket no lleva sector), se acepta
+// la categoria por defecto: nunca se bloquea a alguien que necesita pedir
+// ayuda porque falta configurar el catalogo.
+async function resolveCategory(sectorId: string | null | undefined, category: string | undefined) {
+  const requested = category?.trim();
+  if (!sectorId) return requested || DEFAULT_CATEGORY;
+
+  const available = await sectorsRepo.countCategories(sectorId);
+  if (available === 0) return requested || DEFAULT_CATEGORY;
+
+  if (!requested) throw HttpError.badRequest('Elegí una categoría para el sector seleccionado.');
+  const found = await sectorsRepo.findCategoryByName(sectorId, requested);
+  if (!found) throw HttpError.badRequest('Esa categoría no corresponde al sector elegido.');
+  return found.name;
 }
 
 async function assertTechnicianExists(id: string | null | undefined) {
@@ -87,7 +106,7 @@ export async function getById(user: SessionUser, id: string) {
   if (!isStaff(user) && !isOwn) {
     throw HttpError.forbidden('No podés ver un ticket que no es tuyo.');
   }
-  return ticket;
+  return { ...ticket, attachments: await attachments.listByTicket(id) };
 }
 
 // Alta unificada: cualquier rol crea tickets para cualquier persona y sector
@@ -105,6 +124,8 @@ export async function create(user: SessionUser, data: CreateTicketInput) {
   await assertScheduleValid(data.scheduleId);
 
   const affected = await employeesRepo.findById(employeeId);
+  const sectorId = data.sectorId ?? affected?.sectorId ?? null;
+  const category = await resolveCategory(sectorId, data.category);
 
   const ticket = await repo.create({
     title: data.title,
@@ -112,13 +133,15 @@ export async function create(user: SessionUser, data: CreateTicketInput) {
     employeeId,
     requestedById,
     equipmentId: data.equipmentId ?? null,
-    sectorId: data.sectorId ?? affected?.sectorId ?? null,
+    sectorId,
     scheduleId: data.scheduleId ?? null,
-    category: data.category,
+    category,
     priority: data.priority ?? 'Media',
     status: 'Nuevo',
     createdById: user.id,
   });
+
+  await attachments.linkToTicket(data.attachmentIds, ticket.id, user.id);
 
   // Aviso al equipo de soporte (Admin + Supervisores activos), salvo a quien
   // lo acaba de crear.
@@ -179,7 +202,7 @@ export async function remove(id: string) {
 // completos, pero SI necesita elegir persona/equipo/sector/turno al crear
 // un ticket. Datos minimos, solo activos.
 export async function formOptions() {
-  const [people, equipment, sectors, schedules] = await Promise.all([
+  const [people, equipment, sectors, schedules, categories] = await Promise.all([
     prisma.employee.findMany({
       where: { deletedAt: null, status: 'Activo' },
       select: { id: true, name: true, sectorId: true, sector: { select: { name: true } } },
@@ -200,11 +223,15 @@ export async function formOptions() {
       select: { id: true, name: true, startTime: true, endTime: true },
       orderBy: { startTime: 'asc' },
     }),
+    sectorsRepo.findAllCategories(),
   ]);
   return {
     people: people.map((p) => ({ id: p.id, name: p.name, sectorId: p.sectorId, sectorName: p.sector?.name ?? '' })),
     equipment: equipment.map((e) => ({ id: e.id, model: e.model, type: e.type, sectorId: e.sectorId, sectorName: e.sector?.name ?? '' })),
     sectors,
     schedules,
+    // El formulario filtra estas categorias por el sector elegido, sin
+    // volver a pedir nada al servidor al cambiar el desplegable.
+    categories,
   };
 }

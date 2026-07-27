@@ -3,7 +3,7 @@ import { isUniqueConstraintError } from '../../utils/prismaErrors';
 import * as repo from './sectors.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import * as equipmentRepo from '../equipment/equipment.repository';
-import type { CreateSectorInput, UpdateSectorInput } from './sectors.schema';
+import type { CreateSectorInput, UpdateSectorInput, CreateCategoryInput } from './sectors.schema';
 
 export async function list(q?: string) {
   return repo.findMany(q);
@@ -14,11 +14,34 @@ export async function list(q?: string) {
 export async function getById(id: string) {
   const sector = await repo.findById(id);
   if (!sector) throw HttpError.notFound('Sector no encontrado.');
-  const [people, equipment] = await Promise.all([
+  const [people, equipment, categories] = await Promise.all([
     employeesRepo.findBySector(id),
     equipmentRepo.findBySector(id),
+    repo.findCategories(id),
   ]);
-  return { ...sector, people, equipment };
+  return { ...sector, people, equipment, categories };
+}
+
+/* ---------- Categorias de ticket del sector ---------- */
+
+export async function addCategory(sectorId: string, data: CreateCategoryInput) {
+  await getById(sectorId);
+  try {
+    return await repo.createCategory(sectorId, data.name);
+  } catch (err) {
+    if (isUniqueConstraintError(err)) throw HttpError.conflict('Ese sector ya tiene una categoría con ese nombre.');
+    throw err;
+  }
+}
+
+export async function removeCategory(sectorId: string, categoryId: string) {
+  const category = await repo.findCategoryById(categoryId);
+  if (!category || category.sectorId !== sectorId) {
+    throw HttpError.notFound('Categoría no encontrada en este sector.');
+  }
+  // Los tickets guardan el NOMBRE de la categoria, no su id: borrarla no
+  // afecta el historial ya cargado, solo deja de ofrecerse en el formulario.
+  await repo.deleteCategory(categoryId);
 }
 
 export async function create(data: CreateSectorInput) {

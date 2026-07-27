@@ -34,3 +34,42 @@ export function softDelete(id: string) {
 export function existsActive(id: string) {
   return prisma.sector.findFirst({ where: { id, ...activeFilter, status: 'Activo' }, select: { id: true } });
 }
+
+/* ---------- Categorias de ticket por sector ---------- */
+
+export function findCategories(sectorId: string) {
+  return prisma.ticketCategory.findMany({ where: { sectorId }, orderBy: { name: 'asc' } });
+}
+
+// Todas las categorias de todos los sectores activos, en una sola consulta:
+// la usa /tickets/form-options para que el formulario cambie la lista al
+// elegir sector sin pedir nada mas al servidor.
+export function findAllCategories() {
+  return prisma.ticketCategory.findMany({
+    where: { sector: { deletedAt: null, status: 'Activo' } },
+    select: { id: true, name: true, sectorId: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
+export function createCategory(sectorId: string, name: string) {
+  return prisma.ticketCategory.create({ data: { sectorId, name } });
+}
+
+export function findCategoryById(id: string) {
+  return prisma.ticketCategory.findUnique({ where: { id } });
+}
+
+export function deleteCategory(id: string) {
+  return prisma.ticketCategory.delete({ where: { id } });
+}
+
+// Valida que un nombre de categoria pertenezca al sector indicado (lo usa
+// tickets.service antes de guardar el ticket).
+export function findCategoryByName(sectorId: string, name: string) {
+  return prisma.ticketCategory.findUnique({ where: { sectorId_name: { sectorId, name } } });
+}
+
+export function countCategories(sectorId: string) {
+  return prisma.ticketCategory.count({ where: { sectorId } });
+}

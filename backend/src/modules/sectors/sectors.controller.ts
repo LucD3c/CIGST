@@ -27,3 +27,13 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
   await service.remove(req.params.id!);
   res.status(204).send();
 });
+
+export const addCategory = asyncHandler(async (req: Request, res: Response) => {
+  const category = await service.addCategory(req.params.id!, req.body);
+  res.status(201).json({ category });
+});
+
+export const removeCategory = asyncHandler(async (req: Request, res: Response) => {
+  await service.removeCategory(req.params.id!, req.params.categoryId!);
+  res.status(204).send();
+});

@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import * as controller from './sectors.controller';
-import { createSectorSchema, updateSectorSchema } from './sectors.schema';
+import { z } from 'zod';
+import { createSectorSchema, updateSectorSchema, createCategorySchema } from './sectors.schema';
 import { idParamSchema, listQuerySchema } from '../../utils/commonSchemas';
+
+const categoryParamsSchema = z.object({
+  id: z.string().uuid('El identificador del sector debe ser un UUID valido.'),
+  categoryId: z.string().uuid('El identificador de la categoría debe ser un UUID valido.'),
+});
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
 import { requireRole, ROLES } from '../../middleware/rbac.middleware';
@@ -25,3 +31,19 @@ sectorsRouter.patch(
   controller.update,
 );
 sectorsRouter.delete('/:id', requireRole(ROLES.ADMIN), validate({ params: idParamSchema }), controller.remove);
+
+// Categorias de ticket del sector: las administra el Admin desde el detalle
+// del sector, y despues aparecen como opciones al crear un ticket para ese
+// sector (Supervisor/User las ven pero no las tocan).
+sectorsRouter.post(
+  '/:id/categories',
+  requireRole(ROLES.ADMIN),
+  validate({ params: idParamSchema, body: createCategorySchema }),
+  controller.addCategory,
+);
+sectorsRouter.delete(
+  '/:id/categories/:categoryId',
+  requireRole(ROLES.ADMIN),
+  validate({ params: categoryParamsSchema }),
+  controller.removeCategory,
+);
