@@ -67,6 +67,7 @@ enseguida.
 | Docker Desktop no arranca (Windows) | Verificar que la virtualización esté activada en la BIOS/UEFI y que WSL2 esté habilitado. |
 | `docker: permission denied` (Linux) | Cerrar sesión y volver a entrar después de instalar Docker (tu usuario entra al grupo `docker` recién ahí). |
 | "El puerto ya está ocupado" | Editar `APP_PORT` en el archivo `.env` (por ejemplo `3001`) y volver a la opción 1 del menú. |
+| La interfaz se ve rota/desordenada justo después de actualizar la plataforma | Forzar recarga sin caché (`Ctrl+Shift+R` en Chrome/Edge/Firefox). El servidor ya le pide al navegador revalidar `app.js`/`styles.css` en cada visita, así que no debería repetirse — si pasa, es la única vez que hace falta. |
 | Cualquier otro error del instalador | El detalle técnico completo queda en `install.log`, en esta misma carpeta. |
 
 ## Documentación

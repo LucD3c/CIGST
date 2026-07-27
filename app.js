@@ -690,7 +690,8 @@ function startChatThreadPolling(target){
 /* ---------- Grupos: alta y edicion (solo Admin) ---------- */
 function groupMemberCheckboxes(users,selectedIds){
   const sel=new Set(selectedIds||[]);
-  return `<div class="field form-span"><label>Integrantes</label><div class="member-list">${users.map(u=>`<label class="member-item"><input type="checkbox" name="memberIds" value="${esc(u.id)}"${sel.has(u.id)?' checked':''}/> ${esc(u.name)} <span class="muted">· ${esc(u.role)}</span></label>`).join('')||'<p class="muted">No hay otros usuarios activos.</p>'}</div></div>`;
+  const rows=users.map(u=>`<label class="member-item"><input type="checkbox" name="memberIds" value="${esc(u.id)}"${sel.has(u.id)?' checked':''}/><span class="member-name">${esc(u.name)}</span><span class="member-role">${esc(u.role)}</span></label>`).join('');
+  return `<div class="field form-span"><label>Integrantes (${users.length})</label><div class="member-list">${rows||'<p class="muted" style="padding:12px">No hay otros usuarios activos.</p>'}</div></div>`;
 }
 async function openNewGroupModal(){
   let users;

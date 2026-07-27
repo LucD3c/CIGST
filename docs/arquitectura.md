@@ -69,6 +69,20 @@ Las versiones de las imágenes están fijadas (`postgres:16.14-alpine`,
 `node:20.20.2-alpine` en el Dockerfile): actualizar es una decisión
 consciente, no un efecto colateral de un rebuild.
 
+## Caché de los estáticos (`app.js` / `styles.css`)
+
+`express.static` responde estos archivos con `Cache-Control: no-cache`
+(`app.ts`), no con el default del navegador. La diferencia importa acá: sin
+esa cabecera, un navegador puede quedarse con una versión vieja de
+`styles.css` mientras ya descargó el `app.js` nuevo tras una actualización de
+la plataforma (caché heurística, cada archivo revalida en momentos
+distintos) — la interfaz queda con clases nuevas pero estilos viejos, se ve
+rota. `no-cache` no significa "no guardar": el navegador conserva el archivo
+pero **siempre** revalida contra el servidor antes de usarlo (con ETag,
+`express.static` responde `304` si no cambió — prácticamente gratis en red
+local), así ambos archivos quedan sincronizados en cada visita sin depender
+de que el usuario fuerce una recarga.
+
 ## Notas de API para quien siga trabajando
 
 - `GET /api/sectors` y `GET /api/schedules` están disponibles para

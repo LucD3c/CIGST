@@ -56,7 +56,17 @@ export function createApp() {
   app.use('/api', apiRouter);
 
   const staticDir = path.isAbsolute(env.STATIC_DIR) ? env.STATIC_DIR : path.join(__dirname, '..', env.STATIC_DIR);
-  app.use(express.static(staticDir, { index: 'index.html', extensions: ['html'] }));
+  // no-cache != no guardar: el navegador conserva el archivo pero SIEMPRE
+  // revalida con el servidor (304 si no cambio, baratisimo en LAN). Sin esto,
+  // tras actualizar la plataforma un navegador podia quedarse con un app.js
+  // nuevo y un styles.css viejo (cache heuristico) y la interfaz se rompia.
+  app.use(
+    express.static(staticDir, {
+      index: 'index.html',
+      extensions: ['html'],
+      setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+    }),
+  );
 
   app.use('/api', notFoundHandler);
   app.get('*', (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
