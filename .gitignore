@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Copias de seguridad: contienen datos reales y una copia del .env
+backups/

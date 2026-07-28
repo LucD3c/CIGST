@@ -32,6 +32,27 @@ async function main() {
     console.log(`Usuario administrador "${adminUsername}" ya existe, no se modifica.`);
   }
 
+  // ---------------------------------------------------------------------
+  // DATOS DE DEMOSTRACION: solo en la PRIMERA instalacion.
+  //
+  // El seed corre en cada arranque (para garantizar que siempre exista un
+  // Administrador), pero los datos de ejemplo no deben volver a crearse en
+  // una plataforma que ya esta en uso: si el Administrador borro una
+  // categoria o un sector de ejemplo, tiene que quedar borrado, no
+  // reaparecer en el proximo reinicio o actualizacion.
+  // ---------------------------------------------------------------------
+  const [sectorCount, employeeCount, ticketCount] = await Promise.all([
+    prisma.sector.count(),
+    prisma.employee.count(),
+    prisma.ticket.count(),
+  ]);
+  const yaEnUso = sectorCount > 0 || employeeCount > 0 || ticketCount > 0;
+  if (yaEnUso) {
+    console.log('La plataforma ya tiene datos: se conservan tal cual (no se cargan datos de ejemplo).');
+    console.log('Seed completado.');
+    return;
+  }
+
   // Sectores de referencia: catalogo minimo para arrancar sin la plataforma vacia.
   const sectorNames = ['Administración', 'Sistemas'];
   const sectors = new Map<string, string>();

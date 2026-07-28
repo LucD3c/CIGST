@@ -315,6 +315,104 @@ function Do-Install {
   Diagnose-Failure
 }
 
+# Copia de seguridad completa: base de datos + adjuntos, en una carpeta con
+# la fecha. Sirve para guardar antes de actualizar o de forma periodica.
+function Do-Backup {
+  Title "Copia de seguridad"
+  if ((Get-ServiceHealth 'db') -ne 'healthy') {
+    Bad "La base de datos no esta funcionando: encende la plataforma (opcion 1) antes de hacer la copia."
+    return
+  }
+  $stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm'
+  $dir = Join-Path $PSScriptRoot "backups\$stamp"
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $user = Get-EnvValue 'POSTGRES_USER'; if (-not $user) { $user = 'cigst' }
+  $db = Get-EnvValue 'POSTGRES_DB'; if (-not $db) { $db = 'cigst' }
+
+  Say "  Guardando la base de datos (tickets, personas, equipos, chats, usuarios)..."
+  & cmd /c "docker compose exec -T db pg_dump -U $user -d $db > ""$dir\base-de-datos.sql"" 2>nul"
+  if (-not (Test-Path "$dir\base-de-datos.sql") -or (Get-Item "$dir\base-de-datos.sql").Length -eq 0) {
+    Bad "No se pudo guardar la base de datos. Detalle en install.log"
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+    return
+  }
+  Say "  Guardando los archivos adjuntos..."
+  & cmd /c "docker compose exec -T app sh -c ""cd /app/uploads && tar cf - ."" > ""$dir\adjuntos.tar"" 2>nul"
+  Copy-Item (Join-Path $PSScriptRoot '.env') (Join-Path $dir 'env-respaldo') -ErrorAction SilentlyContinue
+
+  $size = [math]::Round(((Get-ChildItem $dir -Recurse | Measure-Object Length -Sum).Sum / 1MB), 2)
+  Ok "Copia guardada en: backups\$stamp  ($size MB)"
+  Say "  Incluye: base de datos completa, archivos adjuntos y una copia del .env."
+  Warn2 "Guarda esa carpeta fuera de esta maquina (pendrive, red, nube privada)."
+}
+
+# Restaura una copia hecha con la opcion 6. Pisa TODOS los datos actuales.
+function Do-Restore {
+  Title "Restaurar una copia de seguridad"
+  $backupsRoot = Join-Path $PSScriptRoot 'backups'
+  if (-not (Test-Path $backupsRoot) -or -not (Get-ChildItem $backupsRoot -Directory)) {
+    Bad "No hay copias guardadas todavia (se crean con la opcion 6)."
+    return
+  }
+  Say "  Copias disponibles:"
+  Get-ChildItem $backupsRoot -Directory | ForEach-Object { Say "    $($_.Name)" }
+  $choice = Read-Host "  Escribi el nombre exacto de la copia a restaurar (o Enter para cancelar)"
+  $dump = Join-Path $backupsRoot "$choice\base-de-datos.sql"
+  if (-not $choice -or -not (Test-Path $dump)) {
+    Say "  Cancelado (o esa copia no existe)."
+    return
+  }
+  Warn2 "Esto REEMPLAZA todos los datos actuales por los de la copia."
+  $confirm = Read-Host "  Para confirmar escribi exactamente RESTAURAR"
+  if ($confirm -cne 'RESTAURAR') {
+    Say "  Cancelado: no se toco nada."
+    return
+  }
+  $user = Get-EnvValue 'POSTGRES_USER'; if (-not $user) { $user = 'cigst' }
+  $db = Get-EnvValue 'POSTGRES_DB'; if (-not $db) { $db = 'cigst' }
+
+  # Los adjuntos se restauran ANTES de apagar el backend (el tar entra por el
+  # contenedor app, que necesita estar levantado).
+  $tar = Join-Path $backupsRoot "$choice\adjuntos.tar"
+  if (Test-Path $tar) {
+    Say "  Restaurando los archivos adjuntos..."
+    & cmd /c "docker compose exec -T app sh -c ""cd /app/uploads && tar xf -"" < ""$tar"" >nul 2>&1"
+  }
+
+  # Postgres no deja borrar una base con conexiones abiertas: hay que apagar
+  # el backend y cortar las sesiones que queden, o el DROP falla y la
+  # restauracion se aplicaria sobre los datos viejos.
+  Say "  Deteniendo la aplicacion para liberar la base..."
+  Run-Logged 'docker' @('compose', 'stop', 'app') | Out-Null
+  & cmd /c "docker compose exec -T db psql -U $user -d postgres -c ""SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$db' AND pid <> pg_backend_pid();"" >nul 2>&1"
+
+  Say "  Restaurando la base de datos..."
+  if (-not (Test-Command "docker compose exec -T db psql -U $user -d postgres -c ""DROP DATABASE IF EXISTS \""$db\"";""")) {
+    Bad "No se pudo preparar la base para la restauracion. Detalle en install.log"
+    Run-Logged 'docker' @('compose', 'start', 'app') | Out-Null
+    return
+  }
+  if (-not (Test-Command "docker compose exec -T db psql -U $user -d postgres -c ""CREATE DATABASE \""$db\"" OWNER \""$user\"";""")) {
+    Bad "No se pudo recrear la base. Detalle en install.log"
+    Run-Logged 'docker' @('compose', 'start', 'app') | Out-Null
+    return
+  }
+  # ON_ERROR_STOP: si una sentencia del dump falla, psql corta y avisa, en vez
+  # de dejar una restauracion a medias que parezca exitosa.
+  & cmd /c "docker compose exec -T db psql -v ON_ERROR_STOP=1 -U $user -d $db < ""$dump"" >nul 2>&1"
+  $restoreOk = ($LASTEXITCODE -eq 0)
+
+  Say "  Encendiendo la aplicacion..."
+  Run-Logged 'docker' @('compose', 'start', 'app') | Out-Null
+  if (-not $restoreOk) {
+    Bad "Fallo la restauracion de la base. Detalle en install.log"
+    return
+  }
+  # Comprobacion real de que quedaron datos, no solo de que no hubo error.
+  $tickets = ([string](Invoke-Native "docker compose exec -T db psql -U $user -d $db -t -c ""SELECT count(*) FROM tickets;""")).Trim()
+  Ok "Copia restaurada ($tickets tickets en la base). Verifica el estado con la opcion 2."
+}
+
 function Do-Logs {
   Title "Logs en vivo"
   Say "  Se abre una ventana nueva con los logs. Cerrala cuando termines de mirarlos."
@@ -348,6 +446,7 @@ function Do-Reset {
   Title "Resetear todo (BORRA TODOS LOS DATOS)"
   Warn2 "Esto elimina contenedores y TODOS los datos cargados (tickets, personas,"
   Say "  equipos, chats, usuarios). No se puede deshacer."
+  Say "  Si la plataforma ya esta en uso, hace primero una copia (opcion 6)."
   $confirm = Read-Host "  Para confirmar escribi exactamente BORRAR"
   if ($confirm -cne 'BORRAR') {
     Say "  Cancelado: no se borro nada."
@@ -368,14 +467,16 @@ function Main-Menu {
     Write-Host "   ============================================"
     Write-Host "      CIGST - Centro de Soporte Tecnico"
     Write-Host "   ============================================"
-    Write-Host "   1) Instalar / iniciar la plataforma"
+    Write-Host "   1) Instalar / iniciar / actualizar la plataforma"
     Write-Host "   2) Ver estado de los servicios"
     Write-Host "   3) Ver logs en vivo"
     Write-Host "   4) Reiniciar servicios"
     Write-Host "   5) Detener la plataforma"
-    Write-Host "   6) Resetear todo (borra los datos)"
-    Write-Host "   7) Salir"
-    $opt = Read-Host "   Elegi una opcion [1-7]"
+    Write-Host "   6) Hacer copia de seguridad (datos + adjuntos)"
+    Write-Host "   7) Restaurar una copia de seguridad"
+    Write-Host "   8) Resetear todo (BORRA los datos)"
+    Write-Host "   9) Salir"
+    $opt = Read-Host "   Elegi una opcion [1-9]"
     if ($null -eq $opt) { exit 0 }
     switch ($opt.Trim()) {
       '1' { Do-Install }
@@ -383,9 +484,11 @@ function Main-Menu {
       '3' { Do-Logs }
       '4' { Do-Restart }
       '5' { Do-Stop }
-      '6' { Do-Reset }
-      '7' { Say "Hasta luego."; exit 0 }
-      default { Say "  Opcion invalida: elegi un numero del 1 al 7." }
+      '6' { Do-Backup }
+      '7' { Do-Restore }
+      '8' { Do-Reset }
+      '9' { Say "Hasta luego."; exit 0 }
+      default { Say "  Opcion invalida: elegi un numero del 1 al 9." }
     }
   }
 }
