@@ -156,6 +156,73 @@ por vos usando el script oficial (`get.docker.com`) — pero nunca sin
 confirmación explícita: pregunta primero, y solo con un "si" explícito
 descarga y ejecuta ese script.
 
+## Actualizar una instalación que ya está en uso
+
+Es el escenario más delicado: la plataforma ya tiene datos reales de una
+empresa y hay que llevarla a una versión nueva **sin perder nada**.
+
+### Por qué los datos sobreviven
+
+El código y los datos viven en lugares distintos:
+
+| Qué | Dónde vive | Qué le pasa al actualizar |
+| --- | --- | --- |
+| Aplicación (backend + interfaz) | Imagen de Docker | Se reconstruye |
+| Base de datos | Volumen `cigst_pgdata` | **Intacto** |
+| Archivos adjuntos | Volumen `cigst_uploads` | **Intacto** |
+| Configuración y contraseñas | `.env` (fuera del repo) | **Intacto** |
+
+`docker compose up -d --build` (lo que hace la opción 1) recrea contenedores,
+pero **nunca toca los volúmenes**. Lo único que los borra es
+`docker compose down -v`, que es exactamente lo que hace la opción 8
+(Resetear) — y por eso exige escribir `BORRAR` para confirmar.
+
+Las migraciones de base de datos se aplican de forma incremental
+(`prisma migrate deploy`): Prisma lleva registro de cuáles ya se corrieron y
+aplica solo las que faltan, sobre los datos existentes. Si una migración
+fallara, el contenedor `migrate` termina con error y `app` ni siquiera
+arranca — así nunca queda la plataforma corriendo contra una base a medio
+migrar.
+
+### Los datos de ejemplo no vuelven
+
+El seed corre en cada arranque (para garantizar que siempre exista un
+Administrador), pero **los datos de demostración se cargan solo en la primera
+instalación**. Si la base ya tiene sectores, personas o tickets, el seed lo
+detecta y no toca nada:
+
+```
+La plataforma ya tiene datos: se conservan tal cual (no se cargan datos de ejemplo).
+```
+
+Esto importa en producción: si un Administrador borra una categoría o un
+sector de ejemplo, tiene que quedar borrado, no reaparecer en el próximo
+reinicio.
+
+### Procedimiento recomendado
+
+1. Opción **6** → copia de seguridad (base + adjuntos + `.env`).
+2. Copiar esa carpeta `backups/...` fuera de la máquina.
+3. `git pull` (o reemplazar los archivos del ZIP nuevo, **menos** el `.env`).
+4. Opción **1** → reconstruye, migra y levanta.
+5. Opción **2** → confirmar que los 3 servicios están en verde.
+
+Si algo saliera mal, la opción **7** restaura la copia del paso 1.
+
+### Cómo funcionan las copias de seguridad (opciones 6 y 7)
+
+- **Copia (6)**: `pg_dump` completo de la base + `tar` de los adjuntos +
+  copia del `.env`, todo en `backups/AAAA-MM-DD_HH-MM/`. La carpeta
+  `backups/` está en `.gitignore`: contiene datos reales y credenciales, no
+  debe subirse nunca a un repositorio.
+- **Restauración (7)**: detiene el backend (Postgres no permite borrar una
+  base con conexiones abiertas), corta las sesiones remanentes, recrea la
+  base, carga el dump con `ON_ERROR_STOP=1` (si una sola sentencia falla,
+  corta y avisa en vez de dejar una restauración a medias), restaura los
+  adjuntos y vuelve a encender. Al terminar informa **cuántos tickets
+  quedaron en la base**, para que la confirmación sea un hecho verificable y
+  no un mensaje de cortesía.
+
 ## Guía rápida para probar en una VM limpia
 
 ### Windows (VM limpia, sin Docker)

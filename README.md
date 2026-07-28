@@ -112,14 +112,54 @@ el detalle completo de esa garantía.
 El mismo menú sirve después para el día a día:
 
 ```
-   1) Instalar / iniciar la plataforma
+   1) Instalar / iniciar / actualizar la plataforma
    2) Ver estado de los servicios
    3) Ver logs en vivo
    4) Reiniciar servicios
    5) Detener la plataforma
-   6) Resetear todo (borra los datos)
-   7) Salir
+   6) Hacer copia de seguridad (datos + adjuntos)
+   7) Restaurar una copia de seguridad
+   8) Resetear todo (BORRA los datos)
+   9) Salir
 ```
+
+## Actualizar sin perder datos
+
+> [!IMPORTANT]
+> **Actualizar la plataforma NO borra nada.** Los datos viven en volúmenes de
+> Docker independientes del código: al actualizar se reemplaza la aplicación,
+> no la información. Tickets, personas, equipos, sectores, usuarios, chats,
+> notificaciones y archivos adjuntos siguen exactamente donde estaban.
+
+Para actualizar a una versión nueva:
+
+1. **(Recomendado)** Opción **6** del menú → copia de seguridad. Queda en
+   `backups/AAAA-MM-DD_HH-MM/` con la base completa, los adjuntos y una
+   copia del `.env`. Guardala fuera de esa máquina.
+2. Traer el código nuevo: `git pull` (o descargar el ZIP nuevo y reemplazar
+   los archivos — **menos** tu `.env`, que es tuyo y nunca viene en el ZIP).
+3. Opción **1** del menú. Reconstruye la aplicación, aplica las migraciones
+   de base de datos que falten sobre los datos existentes, y la deja andando.
+
+Lo único que borra datos es la opción **8 (Resetear)**, que además exige
+escribir `BORRAR` para confirmar.
+
+<details>
+<summary><strong>Cómo se verificó esto</strong></summary>
+<br>
+
+Se instaló una versión anterior, se cargaron datos como los de una empresa
+(5 sectores, 4 personas, 3 equipos, 5 tickets, 3 usuarios, bitácora y
+mensajes de chat), y se actualizó a la versión actual con la opción 1. Tras
+la actualización: **los mismos 5 sectores, 4 personas, 3 equipos, 5 tickets,
+3 usuarios, bitácora y mensajes**, con las tablas nuevas creadas y vacías,
+listas para usar.
+
+También se probó el ciclo completo de respaldo: copia → borrado total de la
+plataforma → restauración → los datos volvieron completos y la plataforma
+siguió funcionando.
+
+</details>
 
 > **¿Qué hace exactamente el instalador, y por qué hace falta uno?**
 > Respuesta completa, paso a paso, en [docs/instaladores.md](docs/instaladores.md).
