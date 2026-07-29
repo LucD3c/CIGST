@@ -23,11 +23,7 @@ export const startConversation = asyncHandler(async (req: Request, res: Response
 });
 
 export const getMessages = asyncHandler(async (req: Request, res: Response) => {
-  const { before, after, limit } = req.query as { before?: string; after?: string; limit?: number };
-  if (after) {
-    const messages = await service.pollNewMessages(req.user!.id, req.params.id!, after);
-    return res.json({ messages, hasMore: false });
-  }
+  const { before, limit } = req.query as { before?: string; limit?: number };
   const result = await service.getMessages(req.user!.id, req.params.id!, before, limit);
   res.json(result);
 });
@@ -72,11 +68,7 @@ export const removeGroup = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getGroupMessages = asyncHandler(async (req: Request, res: Response) => {
-  const { before, after, limit } = req.query as { before?: string; after?: string; limit?: number };
-  if (after) {
-    const messages = await service.pollGroupMessages(req.user!.id, req.params.id!, after);
-    return res.json({ messages, hasMore: false });
-  }
+  const { before, limit } = req.query as { before?: string; limit?: number };
   const result = await service.getGroupMessages(req.user!.id, req.params.id!, before, limit);
   res.json(result);
 });

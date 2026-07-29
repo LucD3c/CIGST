@@ -27,11 +27,7 @@ export const sendMessageSchema = z
 export const listMessagesQuerySchema = z
   .object({
     before: z.string().uuid().optional(),
-    after: z.string().uuid().optional(),
     limit: z.coerce.number().int().min(1).max(50).optional(),
-  })
-  .refine((data) => !(data.before && data.after), {
-    message: 'No se puede combinar "before" y "after" en la misma consulta.',
   });
 
 const groupName = z.string().trim().min(1, 'El nombre del grupo es obligatorio.').max(80);

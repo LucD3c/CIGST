@@ -3,7 +3,7 @@
 # CIGST
 ### Centro Integral de Gestión de Soporte Técnico
 
-**Tickets con adjuntos · Categorías por sector · Personas · Equipos y espacios · Chat interno · Notificaciones**
+**Tickets con adjuntos · Categorías por sector · Personas · Equipos y espacios · Chat en tiempo real · Notificaciones**
 
 Todo en un solo lugar, corriendo **100% dentro de la red de la empresa** —
 sin depender de internet ni de ningún servicio externo, en ningún momento.
@@ -54,6 +54,7 @@ el detalle completo de esa garantía.
 | Nadie sabe qué equipo o espacio tiene cada sector | Inventario por sector, con historial automático de cada edición |
 | El acceso a la info depende de quién pregunte primero | Permisos por rol, los mismos para todos, validados en el servidor |
 | Coordinación por WhatsApp/email externo | Chat interno (1 a 1 y grupos) sin salir de la red de la empresa |
+| Hay que recargar para ver si hubo novedades | Los mensajes y los cambios de estado llegan solos, al instante |
 | Nadie se entera de un cambio salvo que lo busque | Notificaciones dentro de la plataforma, con un click al destino |
 | "¿Ese ya se fue?" — hay que preguntar quién está | Horario laboral por persona: en línea / fuera de horario, calculado solo |
 | Listas larguísimas donde los cerrados tapan lo urgente | Columnas ordenables y filtro que oculta los cerrados por defecto |
@@ -89,6 +90,11 @@ el detalle completo de esa garantía.
 - 🗂️ **Sectores y turnos** — catálogo compartido por Personas, Equipos y
   Tickets; los turnos de soporte se configuran una vez por empresa. Desde el
   detalle de un sector se dan de alta personas ya ubicadas ahí.
+- ⚡ **Tiempo real** — los mensajes del chat, los cambios de estado de los
+  tickets y las notificaciones **aparecen solos**, sin recargar y sin esperar.
+  Va por WebSocket sobre el mismo puerto y la misma cookie de sesión: no abre
+  nada nuevo hacia afuera. Si se corta la red o se suspende el equipo,
+  reconecta solo.
 - 💬 **Chat interno** — mensajería 1 a 1 y grupos (los crea un
   Administrador), 100% tráfico local, con badge de no leídos y adjuntos.
 - 🔔 **Notificaciones** — campanita con lo que te corresponde a vos: ticket
@@ -248,6 +254,7 @@ chat explicada punto por punto: **[docs/seguridad.md](docs/seguridad.md)**.
 | 🏗️ **[Arquitectura](docs/arquitectura.md)** | Desarrolladores — stack, estructura del código, decisiones de diseño. |
 | 🗄️ **[Modelo de datos](docs/base-de-datos.md)** | Desarrolladores — entidades, convenciones, migraciones. |
 | 🔐 **[Seguridad](docs/seguridad.md)** | Cualquiera evaluando si confiar en la plataforma. |
+| 🏢 **[Puesta en producción](docs/deployment-empresa.md)** | Infraestructura — reverse proxy (nginx/Apache), HTTPS y WebSocket. |
 
 ---
 

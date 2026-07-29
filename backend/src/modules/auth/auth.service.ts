@@ -79,7 +79,15 @@ export async function login(username: string, password: string, meta: LoginMeta)
 
 export async function logout(token: string) {
   const tokenHash = hashSessionToken(token);
+  const sesion = await prisma.session.findUnique({ where: { tokenHash }, select: { userId: true } });
   await prisma.session.deleteMany({ where: { tokenHash } });
+  // Se corta el socket de ESA sesion en el acto. Sin esto la conexion sigue
+  // abierta y autenticada aunque la sesion ya no exista: seguiria recibiendo
+  // mensajes y tickets despues de hacer "Salir".
+  if (sesion) {
+    const realtime = await import('../../realtime/realtime.emit');
+    realtime.closeSocketsForUser(sesion.userId, 'Cerraste sesión.', tokenHash);
+  }
 }
 
 export async function resolveSession(token: string): Promise<SessionUser | null> {
@@ -106,8 +114,12 @@ export async function resolveSession(token: string): Promise<SessionUser | null>
   return toSessionUser(session.user);
 }
 
+// Se usa al desactivar, eliminar o cambiarle la contrasena a un usuario:
+// caen TODAS sus sesiones y, con ellas, todas sus conexiones de tiempo real.
 export async function logoutAllSessionsForUser(userId: string) {
   await prisma.session.deleteMany({ where: { userId } });
+  const realtime = await import('../../realtime/realtime.emit');
+  realtime.closeSocketsForUser(userId, 'Tu sesión fue cerrada por un administrador.');
 }
 
 export type OwnEmployeeContext = {

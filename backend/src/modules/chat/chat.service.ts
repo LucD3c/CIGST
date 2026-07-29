@@ -3,11 +3,11 @@ import { sortByName } from '../../utils/sortByName';
 import * as repo from './chat.repository';
 import * as notifications from '../notifications/notifications.service';
 import * as attachments from '../attachments/attachments.service';
+import * as realtime from '../../realtime/realtime.emit';
 
 type AttachmentView = { id: string; originalName: string; mimeType: string; size: number };
 
 const DEFAULT_PAGE_SIZE = 30;
-const POLL_PAGE_SIZE = 50;
 
 type ConversationWithParticipants = NonNullable<Awaited<ReturnType<typeof repo.findConversationById>>>;
 type Participant = ConversationWithParticipants['userA'];
@@ -88,6 +88,9 @@ export async function startConversation(
   await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
   const other = otherParticipant(conversation, currentUserId);
   const [shaped] = await withAttachments([shapeMessage(currentUserId)(message)]);
+  // Primer mensaje de una conversacion nueva: al destinatario le tiene que
+  // aparecer sin recargar, igual que cualquier otro.
+  if (shaped) realtime.chatMessageSent(conversation.id, shaped);
   return {
     conversation: {
       id: conversation.id,
@@ -120,16 +123,6 @@ export async function getMessages(currentUserId: string, conversationId: string,
   };
 }
 
-// Polling de la conversacion abierta: mensajes nuevos despues de `after`.
-export async function pollNewMessages(currentUserId: string, conversationId: string, afterId: string) {
-  const conversation = await getConversationOrThrow(conversationId);
-  assertParticipant(conversation, currentUserId);
-  await assertCursorBelongsToConversation(afterId, conversationId);
-
-  const rows = await repo.findMessagesAfter(conversationId, afterId, POLL_PAGE_SIZE);
-  return withAttachments(rows.map(shapeMessage(currentUserId)));
-}
-
 export async function sendMessage(
   currentUserId: string,
   conversationId: string,
@@ -147,6 +140,9 @@ export async function sendMessage(
   const message = await repo.sendMessage(conversationId, currentUserId, body);
   await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
   const [shaped] = await withAttachments([shapeMessage(currentUserId)(message)]);
+  // Entrega inmediata a los dos participantes (y a nadie mas: la audiencia la
+  // resuelve realtime.audience contra la base, no el cliente).
+  if (shaped) realtime.chatMessageSent(conversationId, shaped);
   return shaped;
 }
 
@@ -156,6 +152,7 @@ export async function markRead(currentUserId: string, conversationId: string) {
   const conversation = await getConversationOrThrow(conversationId);
   assertParticipant(conversation, currentUserId);
   await repo.markConversationRead(conversationId, currentUserId);
+  realtime.chatConversationRead(conversationId, currentUserId);
 }
 
 // No leidos totales: 1 a 1 + grupos (para el badge de "Mensajes").
@@ -297,15 +294,6 @@ export async function getGroupMessages(currentUserId: string, groupId: string, b
   };
 }
 
-export async function pollGroupMessages(currentUserId: string, groupId: string, afterId: string) {
-  await getGroupOrThrow(groupId);
-  await assertGroupMember(groupId, currentUserId);
-  const cursor = await repo.findMessageById(afterId);
-  if (!cursor || cursor.groupId !== groupId) throw HttpError.badRequest('El cursor de mensajes indicado no es válido para este grupo.');
-  const rows = await repo.findGroupMessagesAfter(groupId, afterId, POLL_PAGE_SIZE);
-  return withAttachments(rows.map(shapeGroupMessage(currentUserId)));
-}
-
 export async function sendGroupMessage(
   currentUserId: string,
   groupId: string,
@@ -317,6 +305,7 @@ export async function sendGroupMessage(
   const message = await repo.sendGroupMessage(groupId, currentUserId, body);
   await attachments.linkToMessage(attachmentIds, message.id, currentUserId);
   const [shaped] = await withAttachments([shapeGroupMessage(currentUserId)(message)]);
+  if (shaped) realtime.chatGroupMessageSent(groupId, shaped);
   return shaped;
 }
 
@@ -324,4 +313,5 @@ export async function markGroupRead(currentUserId: string, groupId: string) {
   await getGroupOrThrow(groupId);
   await assertGroupMember(groupId, currentUserId);
   await repo.markGroupRead(groupId, currentUserId);
+  realtime.chatGroupRead(groupId, currentUserId);
 }

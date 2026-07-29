@@ -40,8 +40,9 @@ export const uploadRateLimiter = rateLimit({
 // especificos de arriba (login, chat), es una red de contencion general para
 // que ninguna cuenta -sea por script, error de cliente o mal uso- pueda
 // saturar el servidor a fuerza de pedidos. El limite es generoso a proposito:
-// el uso normal (polling de chat cada 4s + no-leidos cada 15s, mas la
-// navegacion habitual) queda comodo muy por debajo.
+// la navegacion habitual queda comoda muy por debajo. Ojo: NO cubre el
+// WebSocket, que no pasa por middleware de Express — ese trafico lo limita
+// `realtime/realtime.rateLimit.ts`.
 export const apiRateLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 600,

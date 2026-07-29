@@ -17,7 +17,17 @@ export async function notify(
     await repo.createForUsers(targets, title, targetType, targetId);
   } catch (err) {
     console.error('No se pudo crear la notificacion:', err);
+    return;
   }
+  // Empuje inmediato a cada destinatario: la campanita se actualiza sola, sin
+  // que el navegador tenga que preguntar cada 15 segundos.
+  const realtime = await import('../../realtime/realtime.emit');
+  await Promise.all(
+    targets.map(async (userId) => {
+      const count = await repo.countUnread(userId).catch(() => 0);
+      realtime.notificationCreated(userId, { title, targetType, targetId, createdAt: new Date() }, count);
+    }),
+  );
 }
 
 export async function listForUser(userId: string) {

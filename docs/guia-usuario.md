@@ -231,6 +231,11 @@ Chateá con cualquier persona de la plataforma. Los **grupos aparecen siempre
 primeros** en la lista, con su etiqueta. Enter envía, Shift+Enter baja de
 línea, y el badge azul avisa los mensajes sin leer.
 
+Los mensajes llegan **al instante**: no hay que recargar ni esperar. Lo mismo
+con los cambios de estado de los tickets y con la campanita. Si se corta el
+wifi o se suspende la computadora, al volver se reconecta sola y se pone al
+día con lo que pasó mientras tanto — no hay que hacer nada.
+
 El botón 📎 permite **adjuntar archivos** (imágenes, PDF, planillas). Las
 imágenes se ven directamente en la conversación; el resto aparece como una
 tarjeta para descargar. Se puede mandar un archivo sin escribir nada.
@@ -264,6 +269,10 @@ suyo. Si creés que te falta acceso, hablá con un Administrador.
 
 **¿Cómo sé si mi pedido avanzó?** Te llega una notificación cada vez que tu
 ticket cambia de estado, y lo ves en "Mis solicitudes".
+
+**Cerré la notebook y al abrirla el chat parecía congelado.** Se reconecta
+sola en unos segundos y trae lo que llegó mientras tanto. Si tenés dudas,
+recargar la página no rompe nada.
 
 **¿Se pierde algo si se apaga el servidor?** No: los datos quedan guardados.
 

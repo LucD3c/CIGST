@@ -4,6 +4,7 @@ import { logger } from './utils/logger';
 import { prisma } from './db/prisma';
 import { ensureUploadsDir } from './modules/attachments/attachments.storage';
 import { startOrphanCleanup } from './modules/attachments/attachments.service';
+import { attachRealtime, stopRealtime } from './realtime/realtime.server';
 
 const app = createApp();
 
@@ -18,8 +19,13 @@ const server = app.listen(env.PORT, () => {
   startOrphanCleanup();
 });
 
+// Tiempo real sobre el mismo servidor HTTP: mismo puerto y misma cookie de
+// sesion, sin abrir nada nuevo hacia afuera.
+attachRealtime(server);
+
 async function shutdown(signal: string) {
   logger.info(`${signal} recibido, cerrando servidor...`);
+  stopRealtime();
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

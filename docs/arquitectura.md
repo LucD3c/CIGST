@@ -9,6 +9,7 @@
 | Capa | Tecnología |
 | --- | --- |
 | Backend | Node.js 20 + TypeScript + Express 4 |
+| Tiempo real | WebSocket (`ws`) sobre el mismo servidor HTTP |
 | Base de datos | PostgreSQL 16 (vía Prisma ORM 5) |
 | Frontend | HTML/CSS/JS vanilla en un solo archivo (`app.js`), sin framework ni build |
 | Despliegue | Docker Compose (3 servicios: `db`, `migrate`, `app`) |
@@ -17,7 +18,7 @@ Ninguna parte de la plataforma hace llamadas a internet en tiempo de
 ejecución: sin CDNs, sin APIs externas, sin telemetría. Las fuentes
 tipográficas están auto-hospedadas en `fonts/`. Esto está verificado con
 captura de tráfico de red en un navegador real (cero requests a hosts
-externos, incluso durante el polling del chat).
+externos, incluso con el chat en tiempo real abierto).
 
 ## Estructura del repositorio
 
@@ -30,6 +31,8 @@ backend/
     modules/     auth, users, employees, equipment, tickets, logbook,
                  sectors, schedules, chat, notifications, attachments
                  (cada uno: routes -> controller -> service -> repository)
+    realtime/    tiempo real por WebSocket: servidor, registro de
+                 conexiones, audiencia (RBAC) y cupo de mensajes
     routes/      router principal de /api
   prisma/        schema.prisma, migraciones y seed inicial
   Dockerfile     multi-stage (builder + runtime, usuario no-root)
@@ -151,19 +154,92 @@ de que el usuario fuerce una recarga.
   todavía tiene personas o equipos: si no, esas fichas quedarían apuntando
   a un sector inexistente y el desplegable de su formulario caería en "Sin
   definir" sin que nadie lo pida. Un usuario no puede eliminarse a sí mismo.
+- **Tiempo real** (`/ws`): ver la sección de decisión más abajo. El cupo de
+  mensajes del socket (`realtime.rateLimit.ts`) es **propio**: los limitadores
+  de `express-rate-limit` son middleware HTTP y no ven un solo byte de lo que
+  entra por el WebSocket. El cupo es el mismo que por HTTP (30 mensajes por
+  minuto por usuario) para que el límite efectivo no dependa del transporte.
 - **Referencias opcionales**: `utils/commonSchemas.ts → nullableUuid` acepta
   las tres formas de "sin valor" (`''` del formulario, `null` explícito de
   la API, campo ausente) y las guarda como `null`.
 
-## Decisión: chat por polling HTTP (no WebSocket/SSE)
+## Decisión: tiempo real por WebSocket
 
-A la escala objetivo (decenas de usuarios en red interna), un canal de
-conexiones persistentes suma complejidad real de mantenimiento sin una
-ganancia de latencia que importe. El polling reutiliza el mismo patrón
-`fetch()` del resto de la SPA, no agrega dependencias y se recupera solo de
-cortes de red. Intervalos como constantes en `app.js`:
-`CHAT_THREAD_POLL_MS` (4 s, conversación abierta) y `CHAT_UNREAD_POLL_MS`
-(15 s, badge global de no leídos).
+Los mensajes del chat, los cambios en los tickets y las notificaciones se
+**empujan** desde el servidor por un WebSocket (`ws`) montado sobre el mismo
+servidor HTTP de Express: mismo puerto, mismo origen, misma cookie de sesión.
+No abre nada nuevo hacia afuera ni requiere tocar el firewall.
+
+La primera versión del chat usaba polling HTTP (4 s la conversación abierta,
+15 s el contador de no leídos). Funcionaba, pero tenía dos costos que se
+notan: hasta 4 segundos de demora en ver un mensaje, y un pedido cada pocos
+segundos por cada persona conectada, estuviera pasando algo o no. **Ese
+polling ya no existe** — se sacó por completo del cliente y del backend
+(incluidos los endpoints `?after=` que lo servían).
+
+### El transporte
+
+`realtime/` tiene cinco piezas con una responsabilidad cada una:
+
+| Archivo | Qué hace |
+|---|---|
+| `realtime.server.ts` | Handshake, heartbeat, revalidación de sesión, mensajes entrantes |
+| `realtime.registry.ts` | `userId → sockets`, enviar y cerrar conexiones |
+| `realtime.audience.ts` | **Quién puede recibir cada evento** (el RBAC del socket) |
+| `realtime.rateLimit.ts` | Cupo de mensajes y de frames por usuario |
+| `realtime.emit.ts` | API que usan los services para emitir |
+
+No se usa Redis ni un broker de mensajes: a la escala objetivo (hasta ~50
+usuarios simultáneos en red interna) todo lo sostiene **un solo proceso Node**,
+y no hay varias instancias entre las que compartir estado. Medido con 50
+conexiones simultáneas: 15 ms de latencia de entrega promedio, CPU por debajo
+del 3 %, 41 MB de RAM.
+
+### Solo empuje: el cliente nunca se suscribe
+
+Este es el punto de seguridad más importante del diseño. **No existe un
+mensaje `subscribe`.** El cliente no puede pedir "mandame los eventos de la
+conversación X" ni "de los tickets del sector Y".
+
+Antes de emitir cualquier cosa, el servidor consulta la base y arma la lista
+exacta de usuarios habilitados (`realtime.audience.ts`); el evento sale
+únicamente hacia los sockets de esos usuarios, y el payload se arma por
+destinatario (el mismo mensaje es `mine: true` para quien lo mandó y
+`mine: false` para quien lo recibe). Un cliente manipulado desde la consola del
+navegador no tiene forma de agregarse a una audiencia que no le corresponde,
+porque no hay ningún mensaje que lo permita.
+
+**El RBAC de la API HTTP no se hereda**: por el socket no pasa ningún
+middleware de Express. `realtime.audience.ts` reimplementa explícitamente el
+alcance de `tickets.service.list()`/`getById()` y la regla de participantes del
+chat. Si esas reglas cambian en el service, hay que cambiarlas también ahí —
+está anotado en el propio archivo.
+
+### Lo que el cliente sí puede mandar
+
+Tres cosas, todas acotadas: `ping`, `chat:send` y `chat:read`. `chat:send` y
+`chat:read` pasan por **el mismo service** que usan los endpoints HTTP, así que
+las validaciones de participante y de privacidad son las mismas, no una copia
+que pueda quedar desalineada.
+
+### Reconexión
+
+El cliente reconecta solo, con backoff de 1 s a 20 s. Hay un caso que no se
+resuelve con eso y que aparece al suspender un equipo: **el navegador puede
+dejar el socket en estado `OPEN` aunque ya no pase nada por él** (se verificó:
+con la red caída, Chromium mantiene `readyState === 1`). Para eso hay una sonda
+de vida — al volver la pestaña al frente o al recuperarse la red, se manda un
+`ping` y se espera el `pong`; si no contesta en 4 segundos, se descarta la
+conexión y se reconecta. No es polling: no pide información y solo corre en
+esos dos eventos.
+
+Del lado del servidor, el heartbeat cada 30 s cumple la misma función
+(`ping`/`pong`, se termina lo que no contesta) y además **revalida la sesión
+contra la base**. Eso último es defensa en profundidad: un socket se autentica
+una sola vez, en el handshake, y sin revalidar seguiría vivo después de que la
+sesión expire o de que desactiven la cuenta, aunque algún camino de código se
+olvide de avisar.
+
 
 ## Decisión: HSTS/upgrade-insecure-requests condicionados
 

@@ -92,7 +92,7 @@ límite general de contención: **600 pedidos cada 5 minutos**, por usuario
 autenticado (por IP para pedidos sin sesión). No reemplaza a los límites
 específicos — es una red de resguardo adicional para que ninguna cuenta,
 por error de cliente, script o mal uso, pueda saturar el servidor. El uso
-normal de la interfaz (incluido el polling del chat y de notificaciones)
+normal de la interfaz (incluido el chat en tiempo real)
 queda muy por debajo: el techo existe para el caso anómalo, no para el uso
 cotidiano.
 
@@ -254,3 +254,29 @@ código ya existente:
   hace un Administrador desde el panel).
 - Auditoría inmutable de cambios (más allá del historial de `changeLog` en
   Personas/Equipos/Usuarios, que no es inmutable a nivel base de datos).
+
+## Tiempo real (WebSocket)
+
+El WebSocket es una superficie nueva y **no hereda ninguna de las defensas de
+la API HTTP**: por ahí no pasa ningún middleware de Express. Todo lo que sigue
+está reimplementado a propósito para ese transporte.
+
+| Riesgo | Cómo se cierra | Verificado |
+|---|---|---|
+| Conectarse sin sesión | El handshake resuelve la cookie contra la base antes de aceptar; sin sesión válida el socket nunca llega a existir | Sin cookie → 401. Cookie inventada → 401. Otra ruta → 404 |
+| Recibir datos ajenos | El cliente **no puede suscribirse a nada**: el servidor calcula la audiencia de cada evento contra la base y emite solo a esos usuarios | Con 4 usuarios en paralelo: un Supervisor no recibe chats ajenos; un rango User no recibe tickets de otro |
+| Escribir en conversaciones ajenas | `chat:send` pasa por el mismo service que el endpoint HTTP, con el mismo chequeo de participante | Intento explícito desde un cliente manipulado → rechazado |
+| Flood de mensajes | Cupo propio del socket: 30 mensajes/minuto por usuario y 240 frames/minuto | 45 mensajes de golpe → 30 aceptados, 15 rechazados |
+| Seguir conectado tras cerrar sesión | El logout cierra los sockets de esa sesión en el acto (las otras sesiones del mismo usuario siguen) | Cierre inmediato con código 4001 |
+| Seguir conectado tras ser desactivado | Desactivar, eliminar o cambiar la contraseña cierra **todas** sus conexiones | Cierre inmediato con código 4001 |
+| Sesión que caduca con el socket abierto | El heartbeat revalida contra la base cada 30 s, sin depender de que algún camino de código avise | Sesión borrada por SQL directo → socket cerrado en menos de 40 s |
+| Agotar memoria con un frame gigante | `maxPayload` de 64 KB y techo de 400 conexiones simultáneas | Frame de 200 KB → conexión cortada |
+| Conexiones fantasma | Ping/pong cada 30 s del lado del servidor; sonda de vida del lado del cliente | Con la red caída el navegador deja el socket en `OPEN`: la sonda lo detecta y reconecta |
+
+Nada de esto sale de la red interna: el socket va al mismo origen y al mismo
+puerto que el resto de la plataforma.
+
+> **Detrás de un reverse proxy** hay dos cosas que configurar sí o sí, y una de
+> ellas es de seguridad: sin `TRUST_PROXY=true`, el límite de intentos de login
+> cuenta a toda la empresa como una sola IP. Ver
+> [`deployment-empresa.md`](deployment-empresa.md).

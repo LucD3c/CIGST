@@ -39,7 +39,7 @@ function apiErrorMessage(err) {
 function handleApiError(err) {
   if (err?.status === 401) {
     session = false; currentUser = null;
-    stopChatUnreadPolling(); stopChatThreadPolling();
+    disconnectRealtime();
     loginView();
     toast('Tu sesión expiró. Iniciá sesión nuevamente.');
     return;
@@ -57,17 +57,197 @@ let currentView = 'dashboard';
 // generaba un pedido a /api/xxx/undefined -> "UUID valido").
 let currentDetailId = null;
 
-/* ---------- Chat interno: estado + intervalos de polling (constantes, no numeros sueltos) ---------- */
-const CHAT_THREAD_POLL_MS = 4000;
-const CHAT_UNREAD_POLL_MS = 15000;
+/* ---------- Chat interno: estado ---------- */
+// Los mensajes llegan empujados por el servidor (WebSocket, mas abajo). No hay
+// intervalos preguntando "¿hay algo nuevo?": el navegador no pide nada hasta
+// que el servidor le avisa.
 let chatConversations = [];
 let chatGroups = [];
 let activeChatConversationId = null;
 let activeChatGroupId = null;
 let chatMessages = [];
 let chatUnreadCount = 0;
-let chatThreadPollHandle = null;
-let chatUnreadPollHandle = null;
+
+/* ---------- Tiempo real (WebSocket) ---------- */
+// Espera antes de reintentar cuando se corta la conexion. Arranca corta y va
+// subiendo (backoff) para no castigar al servidor si lo que se cayo es el
+// servidor y no la red.
+const RT_RECONNECT_MIN_MS = 1000;
+const RT_RECONNECT_MAX_MS = 20000;
+let rtSocket = null;
+let rtReconnectDelay = RT_RECONNECT_MIN_MS;
+let rtReconnectHandle = null;
+// Cuando el servidor cierra la conexion a proposito (cerraste sesion, te
+// desactivaron) NO hay que reintentar: reconectar seria pelearle al servidor.
+let rtDeliberatelyClosed = false;
+// Mensajes propios mandados por socket que todavia esperan confirmacion.
+const rtPendingRefs = new Set();
+
+function rtUrl(){
+  const scheme=location.protocol==='https:'?'wss:':'ws:';
+  return `${scheme}//${location.host}/ws`;
+}
+function connectRealtime(){
+  if(!session)return;
+  if(rtSocket&&(rtSocket.readyState===WebSocket.OPEN||rtSocket.readyState===WebSocket.CONNECTING))return;
+  rtDeliberatelyClosed=false;
+  let socket;
+  try{socket=new WebSocket(rtUrl());}catch{scheduleRealtimeReconnect();return;}
+  rtSocket=socket;
+  socket.onopen=()=>{
+    rtReconnectDelay=RT_RECONNECT_MIN_MS;
+    // Al reconectar (volver de suspender la notebook, recuperar el wifi) se
+    // resincroniza lo que pudo pasar mientras no habia conexion.
+    resyncAfterReconnect();
+  };
+  socket.onmessage=ev=>{
+    let payload;
+    try{payload=JSON.parse(ev.data);}catch{return;}
+    handleRealtimeEvent(payload.event,payload.data);
+  };
+  socket.onclose=ev=>{
+    rtSocket=null;
+    // 4001 = el servidor invalido esta sesion a proposito: no se reintenta.
+    if(ev.code===4001||rtDeliberatelyClosed)return;
+    scheduleRealtimeReconnect();
+  };
+  socket.onerror=()=>{ /* el cierre lo maneja onclose */ };
+}
+function scheduleRealtimeReconnect(){
+  if(rtReconnectHandle||rtDeliberatelyClosed||!session)return;
+  rtReconnectHandle=setTimeout(()=>{
+    rtReconnectHandle=null;
+    connectRealtime();
+    rtReconnectDelay=Math.min(rtReconnectDelay*2,RT_RECONNECT_MAX_MS);
+  },rtReconnectDelay);
+}
+function disconnectRealtime(){
+  rtDeliberatelyClosed=true;
+  if(rtReconnectHandle){clearTimeout(rtReconnectHandle);rtReconnectHandle=null;}
+  if(rtSocket){try{rtSocket.close(1000,'salir');}catch{ /* ya estaba cerrado */ }rtSocket=null;}
+  rtPendingRefs.clear();
+}
+function rtSend(payload){
+  if(!rtSocket||rtSocket.readyState!==WebSocket.OPEN)return false;
+  try{rtSocket.send(JSON.stringify(payload));return true;}catch{return false;}
+}
+const rtConnected=()=>Boolean(rtSocket&&rtSocket.readyState===WebSocket.OPEN);
+
+// Sonda de vida. Al suspender el equipo (cerrar la tapa) o perder el wifi, el
+// navegador puede dejar el socket en estado "abierto" aunque ya no pase nada
+// por el: readyState sigue en OPEN y los mensajes se pierden en silencio. El
+// servidor lo detecta con su propio ping cada 30s, pero para que la vuelta sea
+// inmediata se comprueba tambien desde aca en los dos momentos en que eso
+// pasa: cuando la pestana vuelve a estar visible y cuando vuelve la red.
+// No es polling: no se pide informacion, solo se pregunta "¿seguís ahí?" y
+// unicamente en esos dos eventos.
+const RT_PROBE_TIMEOUT_MS = 4000;
+let rtProbeHandle = null;
+const rtPongListeners = new Set();
+function probeRealtime(){
+  if(!session||rtDeliberatelyClosed)return;
+  if(!rtConnected()){connectRealtime();return;}
+  if(rtProbeHandle)return;
+  let contesto=false;
+  const alPong=()=>{contesto=true;};
+  rtPongListeners.add(alPong);
+  rtSend({type:'ping'});
+  rtProbeHandle=setTimeout(()=>{
+    rtProbeHandle=null;
+    rtPongListeners.delete(alPong);
+    if(contesto)return;
+    // No contesto: la conexion esta muerta aunque el navegador diga que no.
+    try{rtSocket&&rtSocket.close(1000,'sin-respuesta');}catch{ /* ya cerrado */ }
+    rtSocket=null;
+    rtReconnectDelay=RT_RECONNECT_MIN_MS;
+    connectRealtime();
+  },RT_PROBE_TIMEOUT_MS);
+}
+window.addEventListener('online',probeRealtime);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)probeRealtime();});
+
+// Volver de una desconexion: puede haber quedado historial sin ver. Se recarga
+// el hilo abierto y se refrescan los contadores, una sola vez.
+async function resyncAfterReconnect(){
+  if(!session)return;
+  try{const{count}=await api('/chat/unread-count');applyChatUnreadCount(count);}
+  catch{ /* si falla, el proximo evento lo corrige */ }
+  refreshNotifBadge();
+  if(currentView!=='chat')return;
+  if(activeChatConversationId)openChatThread(activeChatConversationId);
+  else if(activeChatGroupId)openGroupThread(activeChatGroupId);
+}
+
+function handleRealtimeEvent(event,data){
+  switch(event){
+    case 'ready':return;
+    case 'pong':rtPongListeners.forEach(fn=>fn());return;
+    case 'chat:message':return onRealtimeChatMessage(data);
+    case 'chat:unread':return applyChatUnreadCount(data?.count??0);
+    case 'chat:read':return onRealtimeChatRead(data);
+    case 'notification:new':return applyNotifCount(data?.unreadCount??0);
+    case 'ticket:created':
+    case 'ticket:updated':return onRealtimeTicket(data);
+    case 'chat:sent':return rtPendingRefs.delete(data?.ref);
+    case 'chat:error':
+      rtPendingRefs.delete(data?.ref);
+      return toast(data?.message||'No se pudo enviar el mensaje.');
+    case 'session:closed':
+      rtDeliberatelyClosed=true;
+      session=false;currentUser=null;
+      disconnectRealtime();
+      loginView();
+      return toast(data?.reason||'Tu sesión se cerró.');
+    case 'error':return toast(data?.message||'Error de conexión.');
+    default:return;
+  }
+}
+
+// Mensaje empujado por el servidor. Si es del hilo abierto se agrega a la
+// vista; si no, solo se actualiza el resumen de la lista.
+function onRealtimeChatMessage(m){
+  if(!m)return;
+  const delHiloAbierto=(m.conversationId&&m.conversationId===activeChatConversationId)
+    ||(m.groupId&&m.groupId===activeChatGroupId);
+  if(delHiloAbierto){
+    if(chatMessages.some(x=>x.id===m.id))return; // ya estaba (eco propio)
+    appendChatMessage(m);
+    // Con el hilo a la vista, lo que llega se da por leido.
+    if(!m.mine)markThreadRead(m.conversationId?{conversationId:m.conversationId}:{groupId:m.groupId});
+    return;
+  }
+  const lista=m.groupId?chatGroups:chatConversations;
+  const item=lista.find(x=>x.id===(m.groupId||m.conversationId));
+  if(item){
+    item.lastMessage={body:m.body,senderId:m.senderId,createdAt:m.createdAt,mine:Boolean(m.mine)};
+    item.lastMessageAt=m.createdAt;
+    if(!m.mine)item.unreadCount=(item.unreadCount||0)+1;
+  }
+  if(currentView==='chat')render();
+}
+
+function onRealtimeChatRead(data){
+  if(!data?.conversationId||data.conversationId!==activeChatConversationId)return;
+  const ahora=new Date().toISOString();
+  chatMessages=chatMessages.map(m=>(m.mine&&!m.readAt?{...m,readAt:ahora}:m));
+  const pane=document.getElementById('chat-messages');
+  if(pane){pane.innerHTML=chatMessages.map(chatBubble).join('');scrollChatToBottom();}
+}
+
+// Ticket creado o modificado por otra persona. El servidor solo manda esto a
+// quien tiene permiso de verlo: aca no hace falta volver a filtrar.
+function onRealtimeTicket(ticket){
+  if(!ticket?.id)return;
+  const normalizado=normalizeTicket(ticket);
+  const idx=store.tickets.findIndex(t=>t.id===ticket.id);
+  if(idx>=0)store.tickets[idx]={...store.tickets[idx],...normalizado};
+  else store.tickets.unshift(normalizado);
+  if(['tickets','dashboard','employee-portal'].includes(currentView)){
+    if(document.getElementById('tickets-table'))refreshList('tickets');
+    else render();
+  }
+}
+
 
 /* ---------- Notificaciones (campanita) ---------- */
 let notifUnreadCount = 0;
@@ -140,7 +320,7 @@ function applySessionUser(user) {
   session = true;
   chatConversations = []; chatGroups = []; activeChatConversationId = null; activeChatGroupId = null;
   chatMessages = []; chatUnreadCount = 0; notifUnreadCount = 0; currentDetailId = null;
-  startBackgroundPolling();
+  startRealtime();
   currentView = isStaff() ? 'dashboard' : 'employee-portal';
 }
 async function loadStaffData() {
@@ -302,7 +482,7 @@ const isStaff = () => currentUser?.role !== 'User';
 
 /* ---------- Vistas ---------- */
 function loginView(){app.innerHTML=`<main class="login-page"><section class="login-card"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><h1>Centro de Soporte</h1><p>Ingresá con las credenciales proporcionadas por Sistemas.</p><form id="login-form"><div class="field"><label for="username">Usuario</label><input id="username" name="username" required autocomplete="username" autofocus /></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" required autocomplete="current-password" /></div><div class="login-actions" style="justify-content:flex-end"><button class="btn btn-primary" type="submit">Iniciar sesión</button></div></form></section></main>`;$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const submitBtn=e.currentTarget.querySelector('button[type=submit]');submitBtn.disabled=true;try{const {user}=await api('/auth/login',{method:'POST',body:{username:form.get('username'),password:form.get('password')}});applySessionUser(user);await render();}catch(err){toast(apiErrorMessage(err));}finally{submitBtn.disabled=false;}});}
-function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;stopChatUnreadPolling();stopChatThreadPolling();chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
+function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
 const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span class="nav-badge">${chatUnreadCount>99?'99+':chatUnreadCount}</span>`:'';return `<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}${badge}</button>`;};
 function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
@@ -937,7 +1117,6 @@ function markActiveChatRow(){
 async function openChatThread(conversationId){
   activeChatConversationId=conversationId;
   activeChatGroupId=null;
-  stopChatThreadPolling();
   markActiveChatRow();
   const pane=document.getElementById('chat-thread');
   if(!pane)return;
@@ -951,15 +1130,12 @@ async function openChatThread(conversationId){
   scrollChatToBottom();
   wireChatComposer({conversationId});
   wireChatLoadMore({conversationId},hasMore);
-  try{await api(`/chat/conversations/${conversationId}/read`,{method:'POST'});}catch{ /* si falla, se reintenta en el proximo poll */ }
+  markThreadRead({conversationId});
   if(conv)conv.unreadCount=0;
-  refreshChatUnreadBadge();
-  startChatThreadPolling({conversationId});
 }
 async function openGroupThread(groupId){
   activeChatGroupId=groupId;
   activeChatConversationId=null;
-  stopChatThreadPolling();
   markActiveChatRow();
   const pane=document.getElementById('chat-thread');
   if(!pane)return;
@@ -976,16 +1152,13 @@ async function openGroupThread(groupId){
   if(editBtn)editBtn.onclick=()=>openGroupEdit(groupId);
   wireChatComposer({groupId});
   wireChatLoadMore({groupId},hasMore);
-  try{await api(`/chat/groups/${groupId}/read`,{method:'POST'});}catch{ /* si falla, se reintenta en el proximo poll */ }
+  markThreadRead({groupId});
   if(group)group.unreadCount=0;
-  refreshChatUnreadBadge();
-  startChatThreadPolling({groupId});
 }
 function openNewThreadComposer(recipientId,recipientName){
   activeChatConversationId=null;
   activeChatGroupId=null;
   chatMessages=[];
-  stopChatThreadPolling();
   markActiveChatRow();
   const pane=document.getElementById('chat-thread');
   if(!pane)return;
@@ -1052,16 +1225,38 @@ function wireChatComposer(target){
     submitBtn.disabled=true;
     try{
       if(target.conversationId||target.groupId){
-        const {message}=await api(chatMessagesEndpoint(target),{method:'POST',body:{body,attachmentIds}});
-        appendChatMessage(message);
+        // Por socket si esta abierto: un solo viaje y la burbuja aparece en
+        // las dos pantallas al mismo tiempo. Si justo esta reconectando, se
+        // manda por HTTP para no perder el mensaje.
+        const ref=`m${Date.now()}${Math.random().toString(36).slice(2,7)}`;
+        const porSocket=rtSend({type:'chat:send',...target,body,attachmentIds,ref});
+        if(porSocket){
+          rtPendingRefs.add(ref);
+          // Si el socket quedo zombie, el mensaje se perderia en silencio.
+          // Al no llegar la confirmacion a tiempo se reenvia por HTTP y se
+          // fuerza la reconexion.
+          setTimeout(async()=>{
+            if(!rtPendingRefs.has(ref))return;
+            rtPendingRefs.delete(ref);
+            probeRealtime();
+            try{
+              const {message}=await api(chatMessagesEndpoint(target),{method:'POST',body:{body,attachmentIds}});
+              if(!chatMessages.some(x=>x.id===message.id))appendChatMessage(message);
+            }catch(err){toast(apiErrorMessage(err));}
+          },RT_PROBE_TIMEOUT_MS);
+        }else{
+          const {message}=await api(chatMessagesEndpoint(target),{method:'POST',body:{body,attachmentIds}});
+          appendChatMessage(message);
+        }
       }else{
+        // La primera vez hay que crear la conversacion: eso sigue siendo un
+        // POST (devuelve el id que despues usa el socket).
         const {conversation,message}=await api('/chat/conversations',{method:'POST',body:{recipientId:target.pendingRecipientId,body,attachmentIds}});
         activeChatConversationId=conversation.id;
         // Reasigna el target capturado por este mismo closure: el segundo
         // mensaje en adelante ya usa el conversationId real, sin re-wirear el form.
         target={conversationId:conversation.id};
         appendChatMessage(message);
-        startChatThreadPolling(target);
         refreshChatConversationList();
       }
       textarea.value='';
@@ -1086,20 +1281,12 @@ async function refreshChatConversationList(){
     }
   }catch{ /* silencioso: no interrumpe la conversacion abierta */ }
 }
-function startChatThreadPolling(target){
-  stopChatThreadPolling();
-  const readEndpoint=target.groupId?`/chat/groups/${target.groupId}/read`:`/chat/conversations/${target.conversationId}/read`;
-  chatThreadPollHandle=setInterval(async()=>{
-    const lastId=chatMessages[chatMessages.length-1]?.id;
-    if(!lastId)return;
-    try{
-      const {messages}=await api(`${chatMessagesEndpoint(target)}?after=${lastId}`);
-      if(messages.length){
-        messages.forEach(appendChatMessage);
-        try{await api(readEndpoint,{method:'POST'});}catch{ /* se reintenta en el proximo poll */ }
-      }
-    }catch{ /* un poll fallido no debe interrumpir la conversacion */ }
-  },CHAT_THREAD_POLL_MS);
+// Marca el hilo como leido. Va por el socket si esta abierto (sin pedido HTTP)
+// y cae al endpoint de siempre si justo esta reconectando.
+function markThreadRead(target){
+  if(rtSend({type:'chat:read',...target}))return;
+  const endpoint=target.groupId?`/chat/groups/${target.groupId}/read`:`/chat/conversations/${target.conversationId}/read`;
+  api(endpoint,{method:'POST'}).catch(()=>{ /* se reintenta al reabrir el hilo */ });
 }
 
 /* ---------- Grupos: alta y edicion (solo Admin) ---------- */
@@ -1146,12 +1333,9 @@ async function openGroupEdit(groupId){
   };
   $('.modal-actions').prepend(deleteBtn);
 }
-function stopChatThreadPolling(){
-  if(chatThreadPollHandle){clearInterval(chatThreadPollHandle);chatThreadPollHandle=null;}
-}
-async function refreshChatUnreadBadge(){
-  try{
-    const {count}=await api('/chat/unread-count');
+// El contador lo manda el servidor; aca solo se pinta.
+function applyChatUnreadCount(count){
+  {
     chatUnreadCount=count;
     document.querySelectorAll('.nav-item[data-view="chat"]').forEach(el=>{
       const existing=el.querySelector('.nav-badge');
@@ -1161,12 +1345,14 @@ async function refreshChatUnreadBadge(){
         else el.insertAdjacentHTML('beforeend',`<span class="nav-badge">${text}</span>`);
       }else if(existing){existing.remove();}
     });
-  }catch{ /* un poll fallido no debe molestar al usuario */ }
+  }
 }
 /* ---------- Notificaciones (campanita) ---------- */
-async function refreshNotifBadge(){
-  try{
-    const {count}=await api('/notifications/unread-count');
+// Pinta el numero de la campanita. Lo empuja el servidor con cada
+// notificacion nueva; el pedido HTTP queda solo para el arranque y para
+// resincronizar despues de una desconexion.
+function applyNotifCount(count){
+  {
     notifUnreadCount=count;
     const bell=document.getElementById('notif-bell');
     if(!bell)return;
@@ -1176,7 +1362,11 @@ async function refreshNotifBadge(){
       if(existing)existing.textContent=text;
       else bell.insertAdjacentHTML('beforeend',`<span class="bell-badge">${text}</span>`);
     }else if(existing){existing.remove();}
-  }catch{ /* un poll fallido no debe molestar */ }
+  }
+}
+async function refreshNotifBadge(){
+  try{const{count}=await api('/notifications/unread-count');applyNotifCount(count);}
+  catch{ /* si falla, la proxima notificacion trae el numero al dia */ }
 }
 async function toggleNotifPanel(){
   const panel=document.getElementById('notif-panel');
@@ -1217,21 +1407,18 @@ async function openNotification(id,targetType,targetId){
   render();
 }
 
-/* ---------- Polling de fondo: badge de Mensajes + campanita, mismo ciclo ---------- */
-function startBackgroundPolling(){
-  stopChatUnreadPolling();
-  refreshChatUnreadBadge();
+/* ---------- Arranque del tiempo real ---------- */
+// Una sola conexion abierta mientras dura la sesion. Los contadores se piden
+// una vez al entrar; despues los actualiza el servidor cuando cambian.
+function startRealtime(){
+  connectRealtime();
+  api('/chat/unread-count').then(({count})=>applyChatUnreadCount(count)).catch(()=>{});
   refreshNotifBadge();
-  chatUnreadPollHandle=setInterval(()=>{refreshChatUnreadBadge();refreshNotifBadge();},CHAT_UNREAD_POLL_MS);
-}
-function stopChatUnreadPolling(){
-  if(chatUnreadPollHandle){clearInterval(chatUnreadPollHandle);chatUnreadPollHandle=null;}
 }
 
 /* ---------- Router ---------- */
 async function render(id){
   if(!session){loginView();return;}
-  stopChatThreadPolling();
   // Las vistas de detalle recuerdan su registro: un re-render sin argumento
   // (tras guardar un cambio, cerrar un ticket, etc.) reusa el ultimo id.
   if(id===undefined)id=currentDetailId||undefined;

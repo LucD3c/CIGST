@@ -106,19 +106,6 @@ export function findMessagesPage(conversationId: string, before: string | undefi
   });
 }
 
-// Para el polling de la conversacion abierta: mensajes mas nuevos que el
-// ultimo que ya tiene el cliente, en orden cronologico ascendente. Mismo
-// desempate por id que findMessagesPage, por la misma razon.
-export function findMessagesAfter(conversationId: string, afterId: string, limit: number) {
-  return prisma.message.findMany({
-    where: { conversationId },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    cursor: { id: afterId },
-    skip: 1,
-    take: limit,
-  });
-}
-
 // Marca como leidos los mensajes que mando el OTRO participante (nunca los
 // propios): el que lee es siempre req.user, nunca el remitente original.
 export function markConversationRead(conversationId: string, readerUserId: string) {
@@ -231,17 +218,6 @@ export function findGroupMessagesPage(groupId: string, before: string | undefine
     take: limit,
     include: { sender: { select: { id: true, name: true } } },
     ...(before ? { cursor: { id: before }, skip: 1 } : {}),
-  });
-}
-
-export function findGroupMessagesAfter(groupId: string, afterId: string, limit: number) {
-  return prisma.message.findMany({
-    where: { groupId },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    cursor: { id: afterId },
-    skip: 1,
-    take: limit,
-    include: { sender: { select: { id: true, name: true } } },
   });
 }
 

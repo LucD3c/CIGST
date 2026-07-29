@@ -10,6 +10,7 @@ import { prisma } from '../../db/prisma';
 import type { SessionUser } from '../auth/auth.service';
 import { ROLES } from '../../middleware/rbac.middleware';
 import * as attachments from '../attachments/attachments.service';
+import * as realtime from '../../realtime/realtime.emit';
 import { DEFAULT_CATEGORY } from './tickets.schema';
 import type { CreateTicketInput, UpdateTicketInput } from './tickets.schema';
 
@@ -161,6 +162,10 @@ export async function create(user: SessionUser, data: CreateTicketInput) {
     user.id,
   );
 
+  // Tiempo real: solo a quienes pueden ver ESTE ticket. La audiencia se
+  // calcula en realtime.audience replicando el alcance de list()/getById().
+  realtime.ticketChanged('ticket:created', ticket.id, ticket);
+
   return ticket;
 }
 
@@ -194,6 +199,8 @@ export async function update(actingUser: SessionUser, id: string, data: UpdateTi
       actingUser.id,
     );
   }
+
+  realtime.ticketChanged('ticket:updated', updated.id, updated);
 
   return updated;
 }

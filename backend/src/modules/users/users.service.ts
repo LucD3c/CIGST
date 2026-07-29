@@ -120,5 +120,9 @@ export async function remove(id: string, actingUserId: string) {
   }
   const existing = await getById(id);
   await assertNotLastActiveAdmin(existing);
+  // Primero se cortan sus conexiones de tiempo real y despues se borra: si se
+  // borrara antes, el socket quedaria abierto y autenticado contra un usuario
+  // que ya no existe.
+  await logoutAllSessionsForUser(id);
   return repo.hardDelete(id);
 }
