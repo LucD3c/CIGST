@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './chat.repository';
 import * as notifications from '../notifications/notifications.service';
 import * as attachments from '../attachments/attachments.service';
@@ -169,7 +170,15 @@ export async function unreadTotal(currentUserId: string) {
 
 export async function directory(currentUserId: string) {
   const users = await repo.findDirectory(currentUserId);
-  return users.map((u) => ({ id: u.id, name: u.name, role: u.role.name }));
+  return sortByName(
+    users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role.name,
+      sectorName: u.employee?.sector?.name ?? '',
+    })),
+    (u) => u.name,
+  );
 }
 
 /* ---------- Grupos ---------- */

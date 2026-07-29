@@ -80,6 +80,8 @@ function normalizeEmployee(e) {
     position: e.position || '', status: e.status, workShift: e.workShift || '', schedule: e.schedule || '',
     replacement: e.replacementId || '', replacementInfo: e.replacement || null, notes: e.notes || '',
     changeLog: e.changeLog || '',
+    workStartTime: e.workStartTime || '', workEndTime: e.workEndTime || '',
+    workingStatus: e.workingStatus || 'sin-horario',
     sectorEquipment: (e.sectorEquipment || []).map(x => ({ id: x.id, type: x.type, model: x.model, status: x.status })),
   };
 }
@@ -305,23 +307,113 @@ const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span 
 function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
 function dashboard(){const active=store.tickets.filter(t=>!['Resuelto','Cerrado','Cancelado'].includes(t.status));return page('Centro de operaciones','Visión general del soporte técnico.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)+`<section class="metrics"><div class="metric"><div class="metric-label">Abiertos <span>◈</span></div><div class="metric-value">${active.length}</div><div class="metric-meta">requieren seguimiento</div></div><div class="metric urgent"><div class="metric-label">Urgentes <span>!</span></div><div class="metric-value">${store.tickets.filter(t=>t.priority==='Crítica').length}</div><div class="metric-meta">prioridad crítica</div></div><div class="metric live"><div class="metric-label">En proceso <span>↗</span></div><div class="metric-value">${store.tickets.filter(t=>t.status==='En proceso').length}</div><div class="metric-meta">con técnico asignado</div></div><div class="metric"><div class="metric-label">Esperando <span>◷</span></div><div class="metric-value">${store.tickets.filter(t=>t.status.startsWith('Esperando')).length}</div><div class="metric-meta">usuario o proveedor</div></div><div class="metric"><div class="metric-label">Resueltos <span>✓</span></div><div class="metric-value">${store.tickets.filter(t=>['Resuelto','Cerrado'].includes(t.status)).length}</div><div class="metric-meta">histórico registrado</div></div></section><section class="grid"><div class="panel"><div class="panel-head"><h2>Tickets que requieren atención</h2><a data-view="tickets">Ver todos</a></div>${ticketsTable(active)}</div><div class="panel"><div class="panel-head"><h2>Actividad reciente</h2>${isAdmin()?'<a data-view="logbook">Bitácora</a>':''}</div><div class="activity">${store.activity.length?store.activity.map(activity).join(''):'<div class="empty">Todavía no hay actividad registrada.</div>'}</div></div></section><section class="two-panels"><div class="panel"><div class="panel-head"><h2>Eventos importantes</h2>${isAdmin()?'<a data-view="logbook">Ver bitácora</a>':''}</div>${isAdmin()?(store.logbook.length?store.logbook.slice(0,3).map(e=>`<div class="event"><strong>${esc(e.title)}</strong><span>${esc(e.category)} · ${e.date} · ${esc(e.author)}</span></div>`).join(''):'<div class="empty">No hay eventos técnicos registrados.</div>'):'<div class="empty">Solo visible para Administrador.</div>'}</div><div class="panel"><div class="panel-head"><h2>Recordatorios</h2></div><div class="empty">No hay recordatorios pendientes.</div></div></section>`}
-function ticketsTable(rows){const showActions=isStaff();return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Ticket</th><th>Incidencia</th><th>Prioridad</th><th>Estado</th><th>Asignado</th>${showActions?'<th></th>':''}</tr></thead><tbody>${rows.map(t=>`<tr data-ticket="${t.id}"><td class="mono">${esc(t.code)}</td><td><strong>${esc(t.title)}</strong><br><span class="muted">${esc(employee(t.employee)?.name||t.employeeInfo?.name||'Sin empleado')}</span></td><td>${badge(t.priority)}</td><td>${badge(t.status)}</td><td>${esc(t.technician||'Sin asignar')}</td>${showActions?`<td class="row-actions"><button class="btn-icon" type="button" data-quick-menu="${t.id}" title="Acciones rápidas">⋮</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${showActions?6:5}" class="empty">No hay tickets en esta vista.</td></tr>`}</tbody></table></div>`}
+/* ---------- Ordenamiento de listas por columna ---------- */
+// Cada lista recuerda por que columna esta ordenada y en que sentido. Se
+// hace clic en el encabezado para ordenar y de nuevo para invertir.
+const sortState = {};
+const PRIORITY_RANK = { 'Crítica':0, 'Alta':1, 'Media':2, 'Baja':3 };
+const STATUS_RANK = { 'Nuevo':0, 'Abierto':1, 'En proceso':2, 'Esperando usuario':3, 'Esperando proveedor':4, 'Resuelto':5, 'Cerrado':6, 'Cancelado':7 };
+// Valor por el que se compara cada columna (algunas no se ordenan alfabetico:
+// prioridad y estado siguen su orden logico, no el del abecedario).
+function sortValue(kind,col,row){
+  if(kind==='tickets'){
+    if(col==='priority')return PRIORITY_RANK[row.priority]??99;
+    if(col==='status')return STATUS_RANK[row.status]??99;
+    if(col==='person')return row.employeeInfo?.name||employee(row.employee)?.name||'';
+    if(col==='technician')return row.technician||'zzz';
+  }
+  if(kind==='users'&&col==='lastAccess')return row.lastAccessAt||'';
+  // Se ordena por el texto que se ve en la celda: si la fila muestra "Sin
+  // sector", tiene que ordenarse como "Sin sector" y no como celda vacia
+  // (que se iria toda junta al principio y pareceria desordenado).
+  if(col==='sectorName')return row.sectorName||'Sin sector';
+  const v=row[col];
+  if(typeof v==='number')return v;
+  return String(v??'');
+}
+// Comparador de textos con criterio español: ignora mayusculas y acentos
+// ("Ávila" va junto a "Ana", no despues de "Zulema") y compara los numeros
+// por valor ("Consultorio 3" antes que "Consultorio 213"). Comparar con < y >
+// usaria el codigo del caracter, que para nombres reales se ve desordenado.
+const textCompare=new Intl.Collator('es',{sensitivity:'base',numeric:true}).compare;
+function sortRows(kind,rows){
+  const s=sortState[kind];
+  if(!s||!s.col)return rows;
+  return [...rows].sort((a,b)=>{
+    const va=sortValue(kind,s.col,a),vb=sortValue(kind,s.col,b);
+    const d=(typeof va==='number'&&typeof vb==='number')?va-vb:textCompare(String(va),String(vb));
+    return d*s.dir;
+  });
+}
+// Encabezado clickeable con la flecha del sentido actual.
+function sortableTh(kind,col,label,extra=''){
+  const s=sortState[kind];
+  const active=s&&s.col===col;
+  const arrow=active?(s.dir===1?' ▲':' ▼'):'';
+  return `<th class="sortable ${active?'sorted':''}" data-sort-kind="${kind}" data-sort-col="${col}" ${extra} title="Ordenar por ${esc(label)}">${esc(label)}${arrow}</th>`;
+}
+function wireSorting(root=document){
+  root.querySelectorAll('[data-sort-col]').forEach(th=>th.onclick=()=>{
+    const kind=th.dataset.sortKind,col=th.dataset.sortCol;
+    const s=sortState[kind];
+    sortState[kind]=(s&&s.col===col)?{col,dir:s.dir*-1}:{col,dir:1};
+    refreshList(kind);
+  });
+}
+
+function ticketsTable(rows){const showActions=isStaff();return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('tickets','code','Ticket')}${sortableTh('tickets','title','Incidencia')}${sortableTh('tickets','person','Persona')}${sortableTh('tickets','priority','Prioridad')}${sortableTh('tickets','status','Estado')}${sortableTh('tickets','technician','Asignado')}${showActions?'<th></th>':''}</tr></thead><tbody>${sortRows('tickets',rows).map(t=>`<tr data-ticket="${t.id}"><td class="mono">${esc(t.code)}</td><td><strong>${esc(t.title)}</strong></td><td>${esc(t.employeeInfo?.name||employee(t.employee)?.name||'Sin persona')}</td><td>${badge(t.priority)}</td><td>${badge(t.status)}</td><td>${esc(t.technician||'Sin asignar')}</td>${showActions?`<td class="row-actions"><button class="btn-icon" type="button" data-quick-menu="${t.id}" title="Acciones rápidas">⋮</button></td>`:''}</tr>`).join('')||`<tr><td colspan="${showActions?7:6}" class="empty">No hay tickets en esta vista.</td></tr>`}</tbody></table></div>`}
 const activity=a=>`<div class="activity-item"><div class="activity-symbol">${a.icon}</div><div class="activity-copy">${a.text}</div><div class="activity-time">${a.time}</div></div>`;
-function ticketsView(){return page('Tickets','Registro y seguimiento de incidencias.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por título, técnico o número…" data-filter="tickets" /></div><div class="panel" id="tickets-table">${ticketsTable(store.tickets)}</div>`}
+// Filtro de estado de los tickets. Por defecto oculta los cerrados y
+// cancelados: en el dia a dia lo que importa es lo que sigue abierto.
+let ticketStatusFilter = 'activos';
+const TICKET_STATUS_OPTIONS = [
+  ['activos','Sin cerrados ni cancelados'],
+  ['todos','Todos los estados'],
+  ['Nuevo','Nuevo'],['Abierto','Abierto'],['En proceso','En proceso'],
+  ['Esperando usuario','Esperando usuario'],['Esperando proveedor','Esperando proveedor'],
+  ['Resuelto','Resuelto'],['Cerrado','Cerrado'],['Cancelado','Cancelado'],
+];
+function ticketsMatchingStatus(rows){
+  if(ticketStatusFilter==='todos')return rows;
+  if(ticketStatusFilter==='activos')return rows.filter(t=>!['Cerrado','Cancelado'].includes(t.status));
+  return rows.filter(t=>t.status===ticketStatusFilter);
+}
+function ticketsView(){
+  const opts=TICKET_STATUS_OPTIONS.map(([v,l])=>`<option value="${esc(v)}"${v===ticketStatusFilter?' selected':''}>${esc(l)}</option>`).join('');
+  const visibles=ticketsMatchingStatus(store.tickets).length;
+  return page('Tickets','Registro y seguimiento de pedidos.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)
+    +`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por título, persona o número…" data-filter="tickets" />`
+    +`<select class="list-select" id="ticket-status-filter" title="Filtrar por estado">${opts}</select>`
+    +`<span class="list-count">${visibles} de ${store.tickets.length}</span></div>`
+    +`<div class="panel" id="tickets-table">${ticketsTable(ticketsMatchingStatus(store.tickets))}</div>`;
+}
 function employeePortal(){const person=employee(currentUser.employeeId);return page('Solicitudes de soporte','Creá una solicitud para vos o para cualquier persona de la empresa.',`<button class="btn btn-primary" data-action="new-employee-ticket">+ Solicitar soporte</button>`)+`<section class="panel"><div class="panel-head"><h2>Mis solicitudes</h2><span class="muted">${esc(person?.sectorName||'')}</span></div>${ticketsTable(store.tickets)}</section><section class="panel" style="margin-top:18px"><div class="side-card"><h3>¿Necesitás ayuda?</h3><p class="muted">Describí el problema, elegí a quién hay que asistir (vos u otra persona), la prioridad y, si corresponde, el equipo. Sistemas recibirá la solicitud y actualizará el estado.</p></div></section>`}
 function employeesView(){return page('Personas','Ficha centralizada de colaboradores y su contexto técnico.',isAdmin()?`<button class="btn btn-primary" data-action="new-employee">+ Nueva persona</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, correo, interno o sector…" data-filter="employees" /></div><div class="panel" id="employees-table">${employeesTable(store.employees)}</div>`}
-function employeesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Persona</th><th>Sector / Cargo</th><th>Horario</th><th>Estado</th></tr></thead><tbody>${rows.map(x=>`<tr data-employee="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="muted">${esc(x.email)}</span></td><td>${esc(x.sectorName||'Sin sector')}<br><span class="muted">${esc(x.position)}</span></td><td>${esc(x.workShift)}<br><span class="muted">${esc(x.schedule)}</span></td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="4" class="empty">No se encontraron personas.</td></tr>`}</tbody></table></div>`}
+// Indicador de disponibilidad segun el horario laboral cargado. Lo calcula el
+// servidor con la hora de la empresa, asi todos ven lo mismo.
+function workingBadge(x){
+  if(x.workingStatus==='en-linea')return `<span class="badge b-green">En línea</span>`;
+  if(x.workingStatus==='fuera-de-horario')return `<span class="badge b-gray">Fuera de horario</span>`;
+  return `<span class="muted" style="font-size:11px">Sin horario</span>`;
+}
+function workingRange(x){
+  return x.workStartTime&&x.workEndTime?`${x.workStartTime}–${x.workEndTime}`:'';
+}
+function employeesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('employees','name','Persona')}${sortableTh('employees','sectorName','Sector')}${sortableTh('employees','position','Cargo')}${sortableTh('employees','workStartTime','Horario')}${sortableTh('employees','workingStatus','Disponibilidad')}${sortableTh('employees','status','Estado')}</tr></thead><tbody>${sortRows('employees',rows).map(x=>`<tr data-employee="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="muted">${esc(x.email)}</span></td><td>${esc(x.sectorName||'Sin sector')}</td><td>${esc(x.position)}</td><td class="mono">${esc(workingRange(x)||x.workShift||'—')}</td><td>${workingBadge(x)}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">No se encontraron personas.</td></tr>`}</tbody></table></div>`}
 function equipmentView(){return page('Equipos y espacios','Todo aquello sobre lo que se puede pedir ayuda: equipos, consultorios, salas, instalaciones.',isAdmin()?`<button class="btn btn-primary" data-action="new-equipment">+ Nuevo equipo o espacio</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por tipo, nombre o sector…" data-filter="equipment" /></div><div class="panel" id="equipment-table">${equipmentTable(store.equipment)}</div>`}
-function equipmentTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Equipo o espacio</th><th>Sector</th><th>Estado</th></tr></thead><tbody>${rows.map(x=>`<tr data-equipment="${x.id}"><td><strong>${esc(x.model)||esc(x.type)}</strong><br><span class="muted">${esc(x.type)} · ${esc(x.code)}</span></td><td>${esc(x.sectorName||'Sin sector')}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No se encontraron equipos ni espacios.</td></tr>`}</tbody></table></div>`}
+function equipmentTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('equipment','model','Equipo o espacio')}${sortableTh('equipment','type','Tipo')}${sortableTh('equipment','sectorName','Sector')}${sortableTh('equipment','status','Estado')}</tr></thead><tbody>${sortRows('equipment',rows).map(x=>`<tr data-equipment="${x.id}"><td><strong>${esc(x.model)||esc(x.type)}</strong><br><span class="muted mono">${esc(x.code)}</span></td><td>${esc(x.type)}</td><td>${esc(x.sectorName||'Sin sector')}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="4" class="empty">No se encontraron equipos ni espacios.</td></tr>`}</tbody></table></div>`}
 function logbookView(){return page('Bitácora técnica','Eventos relevantes y cambios de infraestructura.',`<button class="btn btn-primary" data-action="new-log">+ Registrar evento</button>`)+`<section class="panel">${store.logbook.map(x=>`<div class="event"><div class="row-between"><strong>${esc(x.title)}</strong>${badge(x.category)}</div><span>${x.date} · ${esc(x.author)}</span><p class="muted">${esc(x.detail)}</p></div>`).join('')}</section>`}
-function usersView(){return page('Panel administrador','Usuarios, roles y accesos de la plataforma.',`<button class="btn btn-primary" data-action="new-user">+ Crear usuario</button>`)+`<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Ingresos</th></tr></thead><tbody>${store.users.map(x=>`<tr data-user="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="mono">${esc(x.username)}</span></td><td>${esc(x.role)}</td><td>${badge(x.status)}</td><td>${esc(x.lastAccess)}</td><td>${x.logins}</td></tr>`).join('')}</tbody></table></div></section>`}
-function employeeDetail(x){const relatedTickets=store.tickets.filter(t=>t.employee===x.id);return page('Ficha de persona','Contexto operativo unificado.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-employee="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.name)}</h2><p>${esc(x.position)} · ${esc(x.sectorName||'Sin sector')}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Correo</label>${esc(x.email)}</div><div class="info"><label>Interno</label>${esc(x.extension)}</div><div class="info"><label>Horario</label>${esc(x.workShift)} · ${esc(x.schedule)}</div><div class="info"><label>Reemplazo</label>${esc(x.replacementInfo?.name||'No definido')}</div></div></div><div class="panel-head"><h2>Tickets relacionados</h2></div>${ticketsTable(relatedTickets)}</section><aside><div class="panel side-card"><h3>Equipamiento del sector</h3>${x.sectorEquipment.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">No hay equipamiento registrado en este sector.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Notas técnicas</h3>${x.notes?`<div class="note">${esc(x.notes)}</div>`:'<p class="muted">Sin observaciones registradas.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía.</p>'}</div></aside></div>`}
+function usersTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('users','name','Usuario')}${sortableTh('users','role','Rol')}${sortableTh('users','status','Estado')}${sortableTh('users','lastAccess','Último acceso')}${sortableTh('users','logins','Ingresos')}</tr></thead><tbody>${sortRows('users',rows).map(x=>`<tr data-user="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="mono">${esc(x.username)}</span></td><td>${esc(x.role)}</td><td>${badge(x.status)}</td><td>${esc(x.lastAccess)}</td><td>${x.logins}</td></tr>`).join('')||`<tr><td colspan="5" class="empty">No hay usuarios.</td></tr>`}</tbody></table></div>`}
+function usersView(){return page('Panel administrador','Usuarios, roles y accesos de la plataforma.',`<button class="btn btn-primary" data-action="new-user">+ Crear usuario</button>`)+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, usuario o rol…" data-filter="users" /><span class="list-count">${store.users.length} usuarios</span></div><section class="panel" id="users-table">${usersTable(store.users)}</section>`}
+function employeeDetail(x){const relatedTickets=store.tickets.filter(t=>t.employee===x.id);return page('Ficha de persona','Contexto operativo unificado.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-employee="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.name)}</h2><p>${esc(x.position)} · ${esc(x.sectorName||'Sin sector')}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Correo</label>${esc(x.email)}</div><div class="info"><label>Interno</label>${esc(x.extension)}</div><div class="info"><label>Horario laboral</label>${esc(workingRange(x)||x.workShift||'No definido')} ${workingBadge(x)}</div><div class="info"><label>Reemplazo</label>${esc(x.replacementInfo?.name||'No definido')}</div></div></div><div class="panel-head"><h2>Tickets relacionados</h2></div>${ticketsTable(relatedTickets)}</section><aside><div class="panel side-card"><h3>Equipamiento del sector</h3>${x.sectorEquipment.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">No hay equipamiento registrado en este sector.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Notas técnicas</h3>${x.notes?`<div class="note">${esc(x.notes)}</div>`:'<p class="muted">Sin observaciones registradas.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía.</p>'}</div></aside></div>`}
 function equipmentDetail(x){const tickets=store.tickets.filter(t=>t.equipment===x.id);return page('Detalle de equipamiento','Información, historial de cambios y tickets asociados.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-equipment="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.model)||esc(x.type)}</h2><p>${esc(x.type)} · ${esc(x.code)}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Sector</label>${esc(x.sectorName||'Sin asignar')}</div></div></div><div class="panel-head"><h2>Tickets asociados</h2></div>${ticketsTable(tickets)}</section><aside><div class="panel side-card"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía. Cada edición del equipo deja acá su historial automático.</p>'}</div></aside></div>`}
 function sectorsView(){return page('Sectores y turnos','Catálogo compartido por Personas, Equipos y Tickets.',isAdmin()?`<button class="btn btn-primary" data-action="new-sector">+ Nuevo sector</button>`:'')+`<div class="panel" id="sectors-table">${sectorsTable(store.sectors)}</div><section class="panel" style="margin-top:18px"><div class="panel-head"><h2>Turnos de soporte</h2>${isAdmin()?'<button class="btn btn-ghost" data-action="new-schedule">+ Nuevo turno</button>':''}</div><div id="schedules-table">${schedulesTable(store.schedules)}</div></section>`}
-function sectorsTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Sector</th><th>Estado</th></tr></thead><tbody>${rows.map(s=>`<tr data-sector="${s.id}"><td><strong>${esc(s.name)}</strong></td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay sectores creados todavía.</td></tr>`}</tbody></table></div>`}
-function schedulesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Turno</th><th>Horario</th><th>Estado</th></tr></thead><tbody>${rows.map(s=>`<tr data-schedule="${s.id}"><td><strong>${esc(s.name)}</strong></td><td class="mono">${esc(s.startTime)}–${esc(s.endTime)}</td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No hay turnos creados todavía.</td></tr>`}</tbody></table></div>`}
+function sectorsTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('sectors','name','Sector')}${sortableTh('sectors','status','Estado')}</tr></thead><tbody>${sortRows('sectors',rows).map(s=>`<tr data-sector="${s.id}"><td><strong>${esc(s.name)}</strong></td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay sectores creados todavía.</td></tr>`}</tbody></table></div>`}
+function schedulesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('schedules','name','Turno')}${sortableTh('schedules','startTime','Horario')}${sortableTh('schedules','status','Estado')}</tr></thead><tbody>${sortRows('schedules',rows).map(s=>`<tr data-schedule="${s.id}"><td><strong>${esc(s.name)}</strong></td><td class="mono">${esc(s.startTime)}–${esc(s.endTime)}</td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No hay turnos creados todavía.</td></tr>`}</tbody></table></div>`}
 function sectorDetail(x){
-  const peopleRows=x.people.map(p=>`<tr data-employee="${p.id}"><td>${esc(p.name)}</td><td>${badge(p.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay personas en este sector.</td></tr>`;
+  const peopleRows=[...x.people].sort((a,b)=>a.name.localeCompare(b.name,'es',{sensitivity:'base'}))
+    .map(p=>`<tr data-employee="${p.id}"><td>${esc(p.name)}</td><td>${badge(p.status)}</td></tr>`).join('')
+    ||`<tr><td colspan="2" class="empty">No hay personas en este sector.</td></tr>`;
   // Categorias de ticket de ESTE sector: son las que van a aparecer al crear
   // un ticket dirigido aca. Las administra el Admin desde este mismo panel.
   const categoryRows=x.categories.length
@@ -332,7 +424,7 @@ function sectorDetail(x){
     : '';
   return page('Detalle de sector','Personas, equipos y categorías de ticket de este sector.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-sector="${x.id}">Editar</button>`:'')
     +`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><h2>${esc(x.name)}</h2>${badge(x.status)}</div></div>`
-    +`<div class="panel-head"><h2>Personas (${x.people.length})</h2></div><div class="table-wrap"><table class="data-table"><tbody>${peopleRows}</tbody></table></div></section>`
+    +`<div class="panel-head"><h2>Personas (${x.people.length})</h2>${isAdmin()?`<button class="btn btn-ghost" type="button" data-add-person-here="${x.id}">+ Agregar persona a este sector</button>`:''}</div><div class="table-wrap"><table class="data-table"><tbody>${peopleRows}</tbody></table></div></section>`
     +`<aside><div class="panel side-card"><h3>Categorías de ticket (${x.categories.length})</h3><p class="muted" style="margin:0 0 10px;font-size:12px">Aparecen al crear un ticket dirigido a este sector.</p><div class="cat-list">${categoryRows}</div>${categoryForm}</div>`
     +`<div class="panel side-card" style="margin-top:18px"><h3>Equipos y espacios (${x.equipmentList.length})</h3>${x.equipmentList.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">Sin equipos ni espacios en este sector.</p>'}</div></aside></div>`;
 }
@@ -353,6 +445,9 @@ function wireSectorCategories(){
       }catch(err){toast(apiErrorMessage(err));btn.disabled=false;}
     };
   }
+  // Alta de persona ya ubicada en este sector: evita tener que ir a Personas,
+  // crearla y volver a elegir el sector a mano.
+  document.querySelectorAll('[data-add-person-here]').forEach(btn=>btn.onclick=()=>openEmployeeNew(btn.dataset.addPersonHere));
   document.querySelectorAll('[data-remove-category]').forEach(btn=>btn.onclick=async()=>{
     if(!window.confirm('¿Eliminar esta categoría? Los tickets que ya la usaron no se modifican.'))return;
     try{
@@ -426,50 +521,55 @@ const requiredTextArea=(name,label,extra='')=>`<div class="field ${extra}"><labe
 const textValue=(name,label,value='',extra='')=>`<div class="field ${extra}"><label>${label}</label><input name="${name}" value="${esc(value)}" required /></div>`;
 
 /* ---------- Sector: desplegable compartido (se crea/administra desde su propia pantalla) ---------- */
-function sectorSelectOptions(selectedId){
-  const opts=[['','Sin definir'],...store.sectors.map(s=>[s.id,s.name])];
+function sectorSelectOptions(selectedId,emptyLabel='Sin definir'){
+  const sorted=store.sectors.map(s=>[s.id,s.name]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'es',{sensitivity:'base'}));
+  const opts=[['',emptyLabel],...sorted];
   return opts.map(([v,l])=>`<option value="${esc(v)}"${v===selectedId?' selected':''}>${esc(l)}</option>`).join('');
 }
-const sectorField=(selectedId='',label='Sector')=>`<div class="field"><label>${label}</label><select name="sectorId">${sectorSelectOptions(selectedId)}</select></div>`;
+const sectorField=(selectedId='',label='Sector',emptyLabel='Sin definir')=>`<div class="field"><label>${label}</label><select name="sectorId">${sectorSelectOptions(selectedId,emptyLabel)}</select></div>`;
 
 // Categorias del sector elegido: cada sector define las suyas desde su propia
 // pantalla, asi que la lista cambia con el desplegable de Sector.
 function categoriesForSector(sectorId){
-  return store.categories.filter(c=>c.sectorId===sectorId).map(c=>c.name);
+  return store.categories.filter(c=>c.sectorId===sectorId).map(c=>c.name)
+    .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
 }
 function categoryOptionsHtml(sectorId){
   const names=categoriesForSector(sectorId);
-  if(!names.length)return `<option value="">${esc(sectorId?'Este sector no tiene categorías cargadas':'Elegí un sector primero')}</option>`;
+  if(!names.length)return `<option value="">${esc(sectorId?'Este sector no tiene categorías cargadas':'Elegí primero el sector a requerir')}</option>`;
   return names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
 }
+const byName=(a,b)=>String(a[1]).localeCompare(String(b[1]),'es',{sensitivity:'base'});
 function ticketFields(defaultPersonId=''){
-  const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`])];
-  const peopleOptions=store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]);
-  const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`])];
-  // Si no se indica una persona, el desplegable igual va a mostrar la primera
-  // de la lista: se usa ESA para el sector y las categorias iniciales, asi el
-  // formulario arranca coherente con lo que se ve seleccionado (antes el
-  // sector quedaba "Sin definir", la lista de categorias vacia, y al guardar
-  // el backend exigia una categoria que nunca se habia podido elegir).
-  const personId=defaultPersonId||store.employees[0]?.id||'';
-  const person=employee(personId);
-  const sectorId=person?.sectorId||'';
+  const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`]).sort(byName)];
+  // Recien instalada la plataforma todavia no hay personas cargadas: en vez de
+  // un desplegable vacio (que parece roto) se dice que falta cargarlas. El
+  // ticket igual se puede crear: la persona es opcional.
+  const peopleOptions=store.employees.length
+    ? store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]).sort(byName)
+    : [['','Todavía no hay personas cargadas']];
+  const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`]).sort(byName)];
+  const personId=defaultPersonId||peopleOptions[0]?.[0]||'';
+  // El sector del ticket es el SECTOR A REQUERIR: a que area se le pide
+  // ayuda. Arranca vacio a proposito y NO se deduce de la persona ni del
+  // equipo — una persona de Administracion puede pedirle a Mantenimiento por
+  // un equipo que esta en Deposito.
   return select('employee','Persona a asistir',peopleOptions,personId)
     +select('requestedBy','Solicitud informada por',peopleOptions,personId)
     +field('title','Título breve','text','form-span')
     +select('equipment','Equipo o espacio relacionado',equipmentOptions)
-    +sectorField(sectorId)
-    +`<div class="field"><label>Categoría</label><select name="category">${categoryOptionsHtml(sectorId)}</select></div>`
+    +sectorField('','Sector a requerir','Elegí a qué sector se lo pedís')
+    +`<div class="field"><label>Categoría</label><select name="category">${categoryOptionsHtml('')}</select></div>`
     +select('priority','Prioridad',['Media','Baja','Alta','Crítica'])
     +select('scheduleId','Turno de soporte',scheduleOptions)
     +requiredTextArea('description','Descripción del inconveniente','form-span')
     +attachmentField('ticket-attach');
 }
 async function createTicket(values,attachIds){const payload={title:values.get('title'),description:values.get('description'),employeeId:values.get('employee')||'',requestedById:values.get('requestedBy')||'',equipmentId:values.get('equipment')||'',sectorId:values.get('sectorId')||'',scheduleId:values.get('scheduleId')||'',category:values.get('category')||'',priority:values.get('priority'),attachmentIds:attachIds||[]};const {ticket}=await api('/tickets',{method:'POST',body:payload});store.tickets.unshift(normalizeTicket(ticket));}
-// Al elegir un equipo/espacio, el sector se completa solo con el sector
-// ACTUAL de ese equipo (siempre sincronizado). Al cambiar la persona, se
-// propone el suyo. Y cada vez que cambia el sector, la lista de categorias
-// se rearma con las de ese sector.
+// Al elegir el SECTOR A REQUERIR, la lista de categorias se rearma con las
+// que definio ese sector. El sector ya no se deduce del equipo ni de la
+// persona: son cosas distintas (donde esta el equipo vs. a quien le pido
+// ayuda), y mezclarlas ofrecia categorias que no correspondian.
 function wireTicketFormAutoselect(){
   const form=$('#entry-form');
   if(!form)return;
@@ -477,20 +577,12 @@ function wireTicketFormAutoselect(){
   const catSel=form.elements.category;
   const refreshCategories=()=>{ if(catSel&&sectorSel)catSel.innerHTML=categoryOptionsHtml(sectorSel.value); };
   sectorSel?.addEventListener('change',refreshCategories);
-  form.elements.equipment?.addEventListener('change',()=>{
-    const eq=store.equipment.find(x=>x.id===form.elements.equipment.value);
-    if(eq&&sectorSel){sectorSel.value=eq.sectorId||'';refreshCategories();}
-  });
-  form.elements.employee?.addEventListener('change',()=>{
-    const p=employee(form.elements.employee.value);
-    if(p&&sectorSel&&!form.elements.equipment.value){sectorSel.value=p.sectorId||'';refreshCategories();}
-  });
   refreshCategories();
 }
 function openNew(kind){
  if(kind==='ticket'){let att;modal('Nuevo ticket',ticketFields(''),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
  if(kind==='employee-ticket'){let att;modal('Solicitar soporte',ticketFields(currentUser.employeeId),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
- if(kind==='employee')modal('Nueva persona',field('name','Nombre y apellido')+field('email','Correo','email')+sectorField()+field('position','Cargo')+field('extension','Interno')+field('phone','Teléfono')+select('workShift','Turno laboral',['Mañana','Tarde','Jornada completa','Otro'])+field('schedule','Horario habitual')+select('replacement','Reemplazo habitual',[['','No definido'],...store.employees.map(x=>[x.id,x.name])])+field('notes','Observaciones','textarea','form-span'),async f=>{const payload={name:f.get('name'),email:f.get('email')||undefined,sectorId:f.get('sectorId')||'',position:f.get('position')||undefined,extension:f.get('extension')||undefined,phone:f.get('phone')||undefined,workShift:f.get('workShift')||undefined,schedule:f.get('schedule')||undefined,replacementId:f.get('replacement')||'',notes:f.get('notes')||undefined};const {employee:created}=await api('/employees',{method:'POST',body:payload});store.employees.push(normalizeEmployee(created));});
+ if(kind==='employee')openEmployeeNew();
  if(kind==='equipment')modal('Nuevo equipo o espacio',select('type','Tipo',EQUIPMENT_TYPES)+field('model','Nombre o identificación')+sectorField(),async f=>{const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||''};const {equipment:created}=await api('/equipment',{method:'POST',body:payload});store.equipment.push(normalizeEquipment(created));});
  if(kind==='log')modal('Registrar evento',field('title','Título','text','form-span')+select('category','Categoría',['Mantenimiento','Infraestructura','Seguridad','Cambio','Actualización'])+field('detail','Detalle técnico','textarea','form-span'),async f=>{const payload={title:f.get('title'),category:f.get('category'),detail:f.get('detail')};const {entry}=await api('/logbook',{method:'POST',body:payload});store.logbook.unshift(normalizeLogbookEntry(entry));});
  if(kind==='user')modal('Crear usuario',field('name','Nombre completo')+field('username','Usuario')+field('password','Contraseña inicial','password')+select('role','Rol',['Administrador','Supervisor','User'])+select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name])]),async f=>{const payload={name:f.get('name'),username:f.get('username'),password:f.get('password'),role:f.get('role'),employeeId:f.get('role')==='User'?(f.get('employee')||''):''};const {user:created}=await api('/users',{method:'POST',body:payload});store.users.push(normalizeUser(created));});
@@ -498,35 +590,73 @@ function openNew(kind){
  if(kind==='schedule')modal('Nuevo turno',field('name','Nombre del turno')+textValue('startTime','Inicio (HH:MM)','')+textValue('endTime','Fin (HH:MM)',''),async f=>{const {schedule:created}=await api('/schedules',{method:'POST',body:{name:f.get('name'),startTime:f.get('startTime'),endTime:f.get('endTime')}});store.schedules.push(normalizeSchedule(created));});
 }
 
-/* ---------- Personas y Equipos: edicion (solo Admin) con historial de Cambios ---------- */
+/* ---------- Personas y Equipos: alta, edicion y baja (solo Admin) ---------- */
+// Campos de hora reales (no texto libre): con esto la plataforma calcula sola
+// si la persona esta dentro de su horario ahora mismo.
+const timeField=(name,label,value='')=>`<div class="field"><label>${label}</label><input name="${name}" type="time" value="${esc(value||'')}" /></div>`;
+const peopleOptionsSorted=(excludeId='')=>store.employees.filter(x=>x.id!==excludeId).map(x=>[x.id,x.name]).sort(byName);
+
+function employeeFormFields(x={}){
+  return textValue('name','Nombre y apellido',x.name||'')
+    +sectorField(x.sectorId||'','Sector al que pertenece')
+    +textValue('position','Cargo',x.position||'')
+    +textValue('email','Correo',x.email==='—'?'':(x.email||''))
+    +textValue('extension','Interno',x.extension||'')
+    +textValue('phone','Teléfono',x.phone||'')
+    +timeField('workStartTime','Entrada (horario laboral)',x.workStartTime)
+    +timeField('workEndTime','Salida (horario laboral)',x.workEndTime)
+    +select('workShift','Turno laboral',['Mañana','Tarde','Jornada completa','Otro'],x.workShift)
+    +select('replacement','Reemplazo habitual',[['','No definido'],...peopleOptionsSorted(x.id||'')],x.replacement||'')
+    +(x.id?select('status','Estado',['Activo','Inactivo'],x.status):'')
+    +`<div class="field form-span"><label>Observaciones</label><textarea name="notes">${esc(x.notes||'')}</textarea></div>`;
+}
+function employeePayload(f){
+  return {
+    name:f.get('name'),
+    sectorId:f.get('sectorId')||'',
+    position:f.get('position')||'',
+    email:f.get('email')||'',
+    extension:f.get('extension')||'',
+    phone:f.get('phone')||'',
+    workStartTime:f.get('workStartTime')||'',
+    workEndTime:f.get('workEndTime')||'',
+    workShift:f.get('workShift')||'',
+    replacementId:f.get('replacement')||'',
+    notes:f.get('notes')||'',
+  };
+}
+// Los textValue son required por defecto; estos son opcionales.
+function relaxOptionalFields(){
+  ['email','position','extension','phone'].forEach(n=>{const el=$('#entry-form')?.elements[n];if(el)el.required=false;});
+}
+// defaultSectorId permite dar de alta una persona ya ubicada en un sector,
+// desde la pantalla de ese sector.
+function openEmployeeNew(defaultSectorId=''){
+  modal('Nueva persona',employeeFormFields({sectorId:defaultSectorId}),async f=>{
+    const {employee:created}=await api('/employees',{method:'POST',body:employeePayload(f)});
+    store.employees.push(normalizeEmployee(created));
+  });
+  relaxOptionalFields();
+}
 function openEmployeeEdit(id){
   const x=store.employees.find(e=>e.id===id);
   if(!x)return;
-  const fields=textValue('name','Nombre y apellido',x.name)
-    +textValue('email','Correo',x.email==='—'?'':x.email)
-    +sectorField(x.sectorId)
-    +textValue('position','Cargo',x.position)
-    +textValue('extension','Interno',x.extension)
-    +textValue('phone','Teléfono',x.phone)
-    +select('workShift','Turno laboral',['Mañana','Tarde','Jornada completa','Otro'],x.workShift)
-    +textValue('schedule','Horario habitual',x.schedule)
-    +select('status','Estado',['Activo','Inactivo'],x.status)
-    +`<div class="field form-span"><label>Observaciones</label><textarea name="notes">${esc(x.notes||'')}</textarea></div>`;
-  modal(`Editar ${x.name}`,fields,async f=>{
-    const payload={name:f.get('name'),email:f.get('email')||'',sectorId:f.get('sectorId')||'',position:f.get('position')||'',extension:f.get('extension')||'',phone:f.get('phone')||'',workShift:f.get('workShift')||'',schedule:f.get('schedule')||'',status:f.get('status'),notes:f.get('notes')||''};
+  modal(`Editar ${x.name}`,employeeFormFields(x),async f=>{
+    const payload={...employeePayload(f),status:f.get('status')};
     const {employee:updated}=await api(`/employees/${x.id}`,{method:'PATCH',body:payload});
     const idx=store.employees.findIndex(e=>e.id===x.id);
     if(idx>=0)store.employees[idx]=normalizeEmployee(updated);
   });
-  // Los textValue son required por defecto; estos campos son opcionales.
-  ['email','position','extension','phone','schedule'].forEach(n=>{const el=$('#entry-form').elements[n];if(el)el.required=false;});
+  relaxOptionalFields();
+  addDeleteButton(`¿Eliminar a ${x.name}? Sus tickets se conservan, pero deja de aparecer en los listados.`,
+    `/employees/${x.id}`,'Persona eliminada.','employees');
 }
 function openEquipmentEdit(id){
   const x=equipment(id);
   if(!x)return;
   const fields=select('type','Tipo',EQUIPMENT_TYPES,x.type)
     +textValue('model','Nombre o identificación',x.model)
-    +sectorField(x.sectorId)
+    +sectorField(x.sectorId,'Sector donde está')
     +select('status','Estado',['Activo','Inactivo'],x.status);
   modal(`Editar ${x.model||x.type}`,fields,async f=>{
     const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||'',status:f.get('status')};
@@ -534,6 +664,27 @@ function openEquipmentEdit(id){
     const idx=store.equipment.findIndex(e=>e.id===x.id);
     if(idx>=0)store.equipment[idx]=normalizeEquipment(updated);
   });
+  addDeleteButton(`¿Eliminar "${x.model||x.type}"? Los tickets que lo mencionan se conservan.`,
+    `/equipment/${x.id}`,'Equipo o espacio eliminado.','equipment');
+}
+// Boton rojo de eliminar dentro de un modal ya abierto (solo Admin).
+function addDeleteButton(confirmText,endpoint,okMessage,backToView){
+  if(!isAdmin())return;
+  const actions=$('.modal-actions');
+  if(!actions)return;
+  const btn=document.createElement('button');
+  btn.type='button';btn.className='btn btn-danger';btn.textContent='Eliminar';
+  btn.onclick=async()=>{
+    if(!window.confirm(confirmText))return;
+    try{
+      await api(endpoint,{method:'DELETE'});
+      closeModal();
+      toast(okMessage);
+      if(backToView&&currentView.endsWith('-detail')){currentView=backToView;currentDetailId=null;}
+      render();
+    }catch(err){toast(apiErrorMessage(err));}
+  };
+  actions.prepend(btn);
 }
 
 /* ---------- Panel administrador: editar/eliminar usuarios ---------- */
@@ -543,7 +694,7 @@ function openUserEdit(id){
   const isSelf=currentUser.id===id;
   const fields=textValue('name','Nombre completo',u.name)
     +select('role','Rol',['Administrador','Supervisor','User'])
-    +select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name])])
+    +select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name]).sort(byName)])
     +select('status','Estado',['Activo','Inactivo'])
     +`<div class="field form-span"><label>Nueva contraseña (opcional)</label><input name="password" type="password" placeholder="Dejar en blanco para no cambiarla" autocomplete="new-password" /></div>`
     +`<div class="field form-span"><label>Cambios de esta cuenta</label>${u.changeLog?`<div class="note changelog">${esc(u.changeLog)}</div>`:'<p class="muted" style="margin:4px 0">Sin cambios registrados todavía.</p>'}</div>`;
@@ -654,7 +805,46 @@ function wireRecords(root=document){
     root.querySelectorAll('[data-edit-equipment]').forEach(x=>x.onclick=()=>openEquipmentEdit(x.dataset.editEquipment));
   }
 }
-function wirePage(){document.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>openNew(x.dataset.action.replace('new-','')));document.querySelectorAll('.filter').forEach(input=>input.oninput=()=>{const q=input.value.toLowerCase();const kind=input.dataset.filter;const rows=store[kind].filter(x=>Object.values(x).join(' ').toLowerCase().includes(q));$(`#${kind}-table`).innerHTML=kind==='tickets'?ticketsTable(rows):kind==='employees'?employeesTable(rows):equipmentTable(rows);wireRecords($(`#${kind}-table`));});wireRecords();}
+// Texto escrito en cada filtro, para no perderlo al reordenar la lista.
+const listFilters = { tickets:'', employees:'', equipment:'', users:'' };
+// Todas las tablas que se redibujan solas al ordenar o filtrar. Si una tabla
+// falta en este mapa, el encabezado se puede clickear pero la lista no se
+// vuelve a dibujar: el orden cambia por dentro y no se ve.
+const tableRenderers = { tickets:ticketsTable, employees:employeesTable, equipment:equipmentTable, users:usersTable, sectors:sectorsTable, schedules:schedulesTable };
+
+// Filas visibles de una lista: filtro de texto + (en tickets) filtro de estado.
+function visibleRows(kind){
+  let rows=store[kind]||[];
+  if(kind==='tickets')rows=ticketsMatchingStatus(rows);
+  const q=(listFilters[kind]||'').toLowerCase().trim();
+  if(q)rows=rows.filter(x=>Object.values(x).join(' ').toLowerCase().includes(q));
+  return rows;
+}
+// Vuelve a dibujar solo la tabla (sin recargar la vista entera): mantiene el
+// foco en el buscador mientras se escribe.
+function refreshList(kind){
+  const container=document.getElementById(`${kind}-table`);
+  const render=tableRenderers[kind];
+  if(!container||!render)return;
+  const rows=visibleRows(kind);
+  container.innerHTML=render(rows);
+  wireRecords(container);
+  wireSorting(container);
+  const count=document.querySelector('.list-count');
+  if(count&&kind==='tickets')count.textContent=`${rows.length} de ${store.tickets.length}`;
+}
+function wirePage(){
+  document.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>openNew(x.dataset.action.replace('new-','')));
+  document.querySelectorAll('.filter').forEach(input=>{
+    const kind=input.dataset.filter;
+    input.value=listFilters[kind]||'';
+    input.oninput=()=>{listFilters[kind]=input.value;refreshList(kind);};
+  });
+  const statusFilter=document.getElementById('ticket-status-filter');
+  if(statusFilter)statusFilter.onchange=()=>{ticketStatusFilter=statusFilter.value;refreshList('tickets');};
+  wireRecords();
+  wireSorting();
+}
 
 /* ---------- Chat interno (1 a 1 y grupos) ---------- */
 function chatConvRowHtml(c){
@@ -915,7 +1105,10 @@ function startChatThreadPolling(target){
 /* ---------- Grupos: alta y edicion (solo Admin) ---------- */
 function groupMemberCheckboxes(users,selectedIds){
   const sel=new Set(selectedIds||[]);
-  const rows=users.map(u=>`<label class="member-item"><input type="checkbox" name="memberIds" value="${esc(u.id)}"${sel.has(u.id)?' checked':''}/><span class="member-name">${esc(u.name)}</span><span class="member-role">${esc(u.role)}</span></label>`).join('');
+  // Ordenados por nombre y con el sector de cada uno: al armar un grupo hay
+  // que poder ver de que area es cada persona sin tener que salir a buscarlo.
+  const rows=[...users].sort((a,b)=>a.name.localeCompare(b.name,'es',{sensitivity:'base'}))
+    .map(u=>`<label class="member-item"><input type="checkbox" name="memberIds" value="${esc(u.id)}"${sel.has(u.id)?' checked':''}/><span class="member-name">${esc(u.name)}</span>${u.sectorName?`<span class="member-sector">${esc(u.sectorName)}</span>`:''}<span class="member-role">${esc(u.role)}</span></label>`).join('');
   return `<div class="field form-span"><label>Integrantes (${users.length})</label><div class="member-list">${rows||'<p class="muted" style="padding:12px">No hay otros usuarios activos.</p>'}</div></div>`;
 }
 async function openNewGroupModal(){

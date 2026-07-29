@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './tickets.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
@@ -40,31 +41,24 @@ async function assertScheduleValid(scheduleId: string | null | undefined) {
   if (!found) throw HttpError.badRequest('El turno indicado no existe.');
 }
 
-// La categoria tiene que ser una de las que definio ESE sector.
+// El sector del ticket es el SECTOR A REQUERIR: a que area se le pide ayuda
+// (Sistemas, Mantenimiento...), no donde esta la persona ni donde esta el
+// equipo. Por eso la categoria se valida contra ese sector: son las que ese
+// area definio para los pedidos que recibe.
 //
-// "sectorWasChosen" distingue el sector elegido a mano del deducido de la
-// persona a asistir: si el sector se dedujo, no se exige categoria (el
-// formulario no tenia como ofrecerla), simplemente queda la de por defecto.
-// Y si el sector todavia no tiene ninguna categoria cargada, tampoco se
-// exige: nunca se bloquea a alguien que necesita pedir ayuda porque falta
-// configurar el catalogo.
-async function resolveCategory(
-  sectorId: string | null | undefined,
-  category: string | undefined,
-  sectorWasChosen: boolean,
-) {
+// Si el sector a requerir todavia no tiene categorias cargadas, se acepta la
+// de por defecto: nunca se bloquea a alguien que necesita pedir ayuda porque
+// falta configurar el catalogo.
+async function resolveCategory(sectorId: string | null | undefined, category: string | undefined) {
   const requested = category?.trim();
   if (!sectorId) return requested || DEFAULT_CATEGORY;
 
   const available = await sectorsRepo.countCategories(sectorId);
   if (available === 0) return requested || DEFAULT_CATEGORY;
 
-  if (!requested) {
-    if (!sectorWasChosen) return DEFAULT_CATEGORY;
-    throw HttpError.badRequest('Elegí una categoría para el sector seleccionado.');
-  }
+  if (!requested) throw HttpError.badRequest('Elegí una categoría para el sector a requerir.');
   const found = await sectorsRepo.findCategoryByName(sectorId, requested);
-  if (!found) throw HttpError.badRequest('Esa categoría no corresponde al sector elegido.');
+  if (!found) throw HttpError.badRequest('Esa categoría no corresponde al sector a requerir.');
   return found.name;
 }
 
@@ -134,10 +128,11 @@ export async function create(user: SessionUser, data: CreateTicketInput) {
   await assertSectorValid(data.sectorId);
   await assertScheduleValid(data.scheduleId);
 
-  const affected = await employeesRepo.findById(employeeId);
-  const sectorWasChosen = Boolean(data.sectorId);
-  const sectorId = data.sectorId ?? affected?.sectorId ?? null;
-  const category = await resolveCategory(sectorId, data.category, sectorWasChosen);
+  // El sector es el que eligio quien crea el ticket (a que area le pide
+  // ayuda). NO se hereda del sector de la persona ni del equipo: son cosas
+  // distintas — una persona de Administracion puede pedirle a Mantenimiento.
+  const sectorId = data.sectorId ?? null;
+  const category = await resolveCategory(sectorId, data.category);
 
   const ticket = await repo.create({
     title: data.title,
@@ -223,7 +218,9 @@ export async function formOptions() {
     prisma.equipment.findMany({
       where: { deletedAt: null, status: 'Activo' },
       select: { id: true, model: true, type: true, sectorId: true, sector: { select: { name: true } } },
-      orderBy: { createdAt: 'desc' },
+      // Alfabetico: los desplegables se leen mucho mas rapido asi que por
+      // fecha de alta.
+      orderBy: [{ model: 'asc' }, { type: 'asc' }],
     }),
     prisma.sector.findMany({
       where: { deletedAt: null, status: 'Activo' },
@@ -238,9 +235,15 @@ export async function formOptions() {
     sectorsRepo.findAllCategories(),
   ]);
   return {
-    people: people.map((p) => ({ id: p.id, name: p.name, sectorId: p.sectorId, sectorName: p.sector?.name ?? '' })),
-    equipment: equipment.map((e) => ({ id: e.id, model: e.model, type: e.type, sectorId: e.sectorId, sectorName: e.sector?.name ?? '' })),
-    sectors,
+    people: sortByName(
+      people.map((p) => ({ id: p.id, name: p.name, sectorId: p.sectorId, sectorName: p.sector?.name ?? '' })),
+      (p) => p.name,
+    ),
+    equipment: sortByName(
+      equipment.map((e) => ({ id: e.id, model: e.model, type: e.type, sectorId: e.sectorId, sectorName: e.sector?.name ?? '' })),
+      (e) => e.model || e.type,
+    ),
+    sectors: sortByName(sectors, (s) => s.name),
     schedules,
     // El formulario filtra estas categorias por el sector elegido, sin
     // volver a pedir nada al servidor al cambiar el desplegable.

@@ -18,7 +18,11 @@ export const optionalText = (max = 500) =>
     .optional()
     .transform((value) => (value === '' ? undefined : value));
 
+// Referencia opcional a otro registro (sector, equipo, persona de reemplazo…).
+// Se acepta de las tres formas en que puede llegar "sin valor": el '' que manda
+// un desplegable vacio del formulario, el null explicito de quien usa la API
+// directamente, y la ausencia del campo. Las tres se guardan como null.
 export const nullableUuid = z
-  .union([z.string().uuid(), z.literal('')])
+  .union([z.string().uuid(), z.literal(''), z.null()])
   .optional()
   .transform((value) => (value ? value : null));

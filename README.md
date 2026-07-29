@@ -55,6 +55,8 @@ el detalle completo de esa garantía.
 | El acceso a la info depende de quién pregunte primero | Permisos por rol, los mismos para todos, validados en el servidor |
 | Coordinación por WhatsApp/email externo | Chat interno (1 a 1 y grupos) sin salir de la red de la empresa |
 | Nadie se entera de un cambio salvo que lo busque | Notificaciones dentro de la plataforma, con un click al destino |
+| "¿Ese ya se fue?" — hay que preguntar quién está | Horario laboral por persona: en línea / fuera de horario, calculado solo |
+| Listas larguísimas donde los cerrados tapan lo urgente | Columnas ordenables y filtro que oculta los cerrados por defecto |
 
 ## Funciones principales
 
@@ -63,19 +65,30 @@ el detalle completo de esa garantía.
   rápidas para resolver/cerrar/asignarse sin abrir el detalle.
 - 🏷️ **Categorías por sector** — cada área que recibe pedidos define las
   suyas ("Hardware" o "Red" para Sistemas; "Arreglar" o "Modificación" para
-  Mantenimiento). Al elegir el sector en un ticket, la lista de categorías
-  se ajusta sola a ese sector.
+  Mantenimiento). Al elegir el **sector a requerir** en un ticket — a qué
+  área se le pide la ayuda, que no es dónde está el equipo — la lista de
+  categorías se ajusta sola a ese sector.
+- 🔎 **Listas ordenables y filtrables** — clic en cualquier columna para
+  ordenar (y otro para invertir), buscador que filtra al escribir, y el
+  filtro de tickets que **oculta los cerrados por defecto**. El orden es el
+  que uno espera en castellano: ignora mayúsculas, ubica bien los acentos y
+  la ñ, y compara los números por valor (*Consultorio 3* antes que
+  *Consultorio 213*).
 - 📎 **Archivos adjuntos** — imágenes, PDF y planillas en tickets y en el
   chat. Las imágenes se ven directamente; el resto se descarga. Hasta 5
   archivos de 10 MB por vez.
-- 👤 **Personas** — ficha por colaborador con su sector, contacto, horario y
-  tickets. Cada edición queda en un historial de cambios automático.
+- 👤 **Personas** — ficha por colaborador con su sector, contacto y tickets.
+  Se le carga el **horario laboral** eligiendo entrada y salida de un reloj,
+  y la plataforma muestra sola si está **en línea** o **fuera de horario**,
+  calculado en el servidor (incluidos los turnos que cruzan la medianoche).
+  Cada edición queda en un historial de cambios automático.
 - 🏢 **Equipos y espacios** — no solo inventario informático: también
   consultorios, salas, puertas o instalaciones — cualquier cosa sobre la
   que se pida ayuda. Editable, con **historial de cambios automático** (qué
   cambió, de qué valor a qué valor, cuándo).
 - 🗂️ **Sectores y turnos** — catálogo compartido por Personas, Equipos y
-  Tickets; los turnos de soporte se configuran una vez por empresa.
+  Tickets; los turnos de soporte se configuran una vez por empresa. Desde el
+  detalle de un sector se dan de alta personas ya ubicadas ahí.
 - 💬 **Chat interno** — mensajería 1 a 1 y grupos (los crea un
   Administrador), 100% tráfico local, con badge de no leídos y adjuntos.
 - 🔔 **Notificaciones** — campanita con lo que te corresponde a vos: ticket

@@ -20,7 +20,7 @@ export function findMany(q?: string) {
         : {}),
     },
     include: { sector: true },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ model: 'asc' }, { type: 'asc' }],
   });
 }
 
@@ -40,7 +40,7 @@ export function findById(id: string) {
 export function findBySector(sectorId: string) {
   return prisma.equipment.findMany({
     where: { sectorId, ...activeFilter },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ model: 'asc' }, { type: 'asc' }],
   });
 }
 

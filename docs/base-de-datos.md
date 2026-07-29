@@ -16,11 +16,14 @@
 | Attachment | `attachments` | Archivo adjunto de un ticket o de un mensaje |
 | Schedule | `schedules` | Turno de soporte (nombre + hora inicio/fin) |
 | Employee | `employees` | Persona de la empresa (puede no tener cuenta) |
-| Equipment | `equipment` | Equipo informático, vinculado a un sector |
+| Equipment | `equipment` | Equipo o **espacio**, ubicado en un sector |
 | Ticket | `tickets` | Solicitud de soporte |
 | LogbookEntry | `logbook_entries` | Evento de la bitácora técnica |
 | Conversation | `chat_conversations` | Par de usuarios que chatean (par canónico único) |
+| ChatGroup | `chat_groups` | Grupo de chat con varios integrantes |
+| ChatGroupMember | `chat_group_members` | Integrante de un grupo (+ su última lectura) |
 | Message | `chat_messages` | Mensaje del chat (readAt lo marca el receptor) |
+| Notification | `notifications` | Aviso dirigido a un usuario |
 
 ## Convenciones
 
@@ -57,6 +60,38 @@ backend valida que la categoría pertenezca al sector elegido; si ese sector
 todavía no tiene ninguna cargada (o el ticket no lleva sector), se acepta
 `General` — nunca se bloquea a alguien que necesita pedir ayuda porque falta
 configurar el catálogo.
+
+## Los dos sectores de un ticket (no confundirlos)
+
+`Ticket.sectorId` es el **sector a requerir**: a qué área se le pide la
+ayuda. Es un dato propio del pedido y **no se hereda** del sector de la
+persona (`Employee.sectorId`, dónde trabaja) ni del equipo
+(`Equipment.sectorId`, dónde está ubicado). Los tres son independientes a
+propósito: alguien de Administración puede pedirle a Mantenimiento por una
+PC que está en Depósito.
+
+Antes el sector se completaba solo a partir del equipo, y eso hacía que el
+formulario exigiera una categoría de un sector que el usuario nunca había
+elegido.
+
+## Horario laboral y disponibilidad
+
+`Employee.workStartTime` / `workEndTime` guardan `HH:MM` como texto (no
+`Date`): es una franja que se repite todos los días, no un instante. El
+estado (`en-linea` / `fuera-de-horario` / `sin-horario`) **no se persiste**
+— se calcula en cada lectura en `utils/workingHours.ts` usando la hora del
+servidor en la zona `TZ`, así todos ven lo mismo sin depender del reloj de
+cada equipo. Si el fin es menor que el inicio, el turno cruza la medianoche
+y se evalúa como dos tramos.
+
+## Orden alfabético
+
+El `ORDER BY` de Postgres compara por código de carácter: `ZZ` antes que
+`Zulema`, y `álvarez` después de `Zulema`. Para las listas que ve una
+persona, los servicios reordenan con `utils/sortByName.ts`
+(`Intl.Collator('es', { sensitivity: 'base', numeric: true })`), que ignora
+mayúsculas y acentos y compara los números por valor. El frontend usa el
+mismo criterio al ordenar por columna.
 
 ## Adjuntos
 

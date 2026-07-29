@@ -133,6 +133,27 @@ de que el usuario fuerce una recarga.
   los services de employees/equipment/users y antepone la línea al campo
   `changeLog`; la zona horaria de esas marcas sale de `TZ` (compose la pasa,
   por defecto America/Argentina/Buenos_Aires).
+- **Disponibilidad de una persona**: `utils/workingHours.ts` calcula
+  `en-linea` / `fuera-de-horario` / `sin-horario` a partir de
+  `workStartTime`/`workEndTime` y la hora del servidor en `TZ`. No es una
+  columna: se agrega al serializar en `employees.service`, así nunca queda
+  un estado viejo guardado. Contempla turnos que cruzan la medianoche.
+- **Orden alfabético**: `utils/sortByName.ts` reordena los listados con
+  `Intl.Collator('es', { sensitivity: 'base', numeric: true })`. El
+  `ORDER BY` de Postgres compara por código de carácter y deja `ZZ` antes
+  que `Zulema`; para listas que lee una persona eso se ve desordenado. Se
+  aplica en employees, users, sectors, equipment, el directorio del chat y
+  `form-options`. `app.js` usa el mismo criterio al ordenar por columna.
+- **Borrados**: `DELETE` en `/employees`, `/equipment`, `/sectors` (todos
+  admin-only) y `/users`. Son borrados lógicos, así que los tickets
+  conservan el nombre de la persona, el equipo y el sector aunque se hayan
+  eliminado. `sectors.service.remove` **rechaza con 409** si el sector
+  todavía tiene personas o equipos: si no, esas fichas quedarían apuntando
+  a un sector inexistente y el desplegable de su formulario caería en "Sin
+  definir" sin que nadie lo pida. Un usuario no puede eliminarse a sí mismo.
+- **Referencias opcionales**: `utils/commonSchemas.ts → nullableUuid` acepta
+  las tres formas de "sin valor" (`''` del formulario, `null` explícito de
+  la API, campo ausente) y las guarda como `null`.
 
 ## Decisión: chat por polling HTTP (no WebSocket/SSE)
 

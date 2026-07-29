@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { HttpError } from '../../utils/httpError';
 import { isUniqueConstraintError } from '../../utils/prismaErrors';
 import { buildChangeLine, prependLog, nowStamp } from '../../utils/changeLog';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './users.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import { logoutAllSessionsForUser } from '../auth/auth.service';
@@ -34,11 +35,11 @@ async function assertNotLastActiveAdmin(user: { id: string; status: string; role
 }
 
 export async function list() {
-  return repo.findMany();
+  return sortByName(await repo.findMany(), (u) => u.name);
 }
 
 export async function listTechnicians() {
-  return repo.findTechnicians();
+  return sortByName(await repo.findTechnicians(), (u) => u.name);
 }
 
 export async function getById(id: string) {

@@ -1,12 +1,13 @@
 import { HttpError } from '../../utils/httpError';
 import { isUniqueConstraintError } from '../../utils/prismaErrors';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './sectors.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import * as equipmentRepo from '../equipment/equipment.repository';
 import type { CreateSectorInput, UpdateSectorInput, CreateCategoryInput } from './sectors.schema';
 
 export async function list(q?: string) {
-  return repo.findMany(q);
+  return sortByName(await repo.findMany(q), (s) => s.name);
 }
 
 // El detalle de un sector muestra quienes lo integran (personas y equipos),
@@ -19,7 +20,12 @@ export async function getById(id: string) {
     equipmentRepo.findBySector(id),
     repo.findCategories(id),
   ]);
-  return { ...sector, people, equipment, categories };
+  return {
+    ...sector,
+    people: sortByName(people, (e) => e.name),
+    equipment: sortByName(equipment, (e) => e.model || e.type),
+    categories: sortByName(categories, (c) => c.name),
+  };
 }
 
 /* ---------- Categorias de ticket del sector ---------- */
@@ -63,7 +69,22 @@ export async function update(id: string, data: UpdateSectorInput) {
   }
 }
 
+// No se elimina un sector que todavia tiene gente o equipos adentro: quedarian
+// apuntando a un sector que ya no existe, la lista seguiria mostrando ese
+// nombre y al editar la ficha el desplegable caeria en "Sin definir" sin que
+// nadie lo pida. Se avisa cuantos hay y que hacer antes de borrarlo.
 export async function remove(id: string) {
-  await getById(id);
+  const sector = await getById(id);
+  const personas = sector.people.length;
+  const equipos = sector.equipment.length;
+  if (personas || equipos) {
+    const partes: string[] = [];
+    if (personas) partes.push(`${personas} ${personas === 1 ? 'persona' : 'personas'}`);
+    if (equipos) partes.push(`${equipos} ${equipos === 1 ? 'equipo o espacio' : 'equipos o espacios'}`);
+    throw HttpError.conflict(
+      `No se puede eliminar «${sector.name}»: todavía tiene ${partes.join(' y ')}. ` +
+        'Movelos a otro sector (o dejalos sin sector) y volvé a intentarlo.',
+    );
+  }
   return repo.softDelete(id);
 }

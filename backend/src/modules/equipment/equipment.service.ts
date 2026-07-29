@@ -1,5 +1,6 @@
 import { HttpError } from '../../utils/httpError';
 import { buildChangeLine, prependLog } from '../../utils/changeLog';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './equipment.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
 import type { CreateEquipmentInput, UpdateEquipmentInput } from './equipment.schema';
@@ -11,7 +12,7 @@ async function assertSectorValid(sectorId: string | null | undefined) {
 }
 
 export async function list(q?: string) {
-  return repo.findMany(q);
+  return sortByName(await repo.findMany(q), (e) => e.model || e.type);
 }
 
 export async function getById(id: string) {

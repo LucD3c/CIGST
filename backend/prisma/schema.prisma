@@ -144,6 +144,13 @@ model Employee {
   position     String?
   status       String    @default("Activo")
   workShift    String?   @map("work_shift")
+  // Horario laboral estructurado (HH:MM). Con estos dos campos la plataforma
+  // puede calcular sola si la persona esta dentro de su horario ahora mismo,
+  // en vez de depender de un texto libre que nadie puede interpretar.
+  // Si workEndTime es menor que workStartTime, el turno cruza la medianoche
+  // (por ejemplo 22:00–06:00) y el calculo lo contempla.
+  workStartTime String?  @map("work_start_time")
+  workEndTime   String?  @map("work_end_time")
   schedule     String?
   replacementId String?  @map("replacement_id")
   notes        String?

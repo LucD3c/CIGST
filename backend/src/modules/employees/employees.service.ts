@@ -1,5 +1,7 @@
 import { HttpError } from '../../utils/httpError';
 import { buildChangeLine, prependLog } from '../../utils/changeLog';
+import { workingStatus } from '../../utils/workingHours';
+import { sortByName } from '../../utils/sortByName';
 import * as repo from './employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
 import * as equipmentRepo from '../equipment/equipment.repository';
@@ -18,8 +20,15 @@ async function assertSectorValid(sectorId: string | null | undefined) {
   if (!found) throw HttpError.badRequest('El sector indicado no existe.');
 }
 
+// Agrega el estado "en linea / fuera de horario" calculado con la hora del
+// servidor, para que todos vean lo mismo sin depender del reloj de su equipo.
+function withWorkingStatus<T extends { workStartTime: string | null; workEndTime: string | null }>(employee: T) {
+  return { ...employee, workingStatus: workingStatus(employee.workStartTime, employee.workEndTime) };
+}
+
 export async function list(q?: string) {
-  return repo.findMany(q);
+  const employees = await repo.findMany(q);
+  return sortByName(employees.map(withWorkingStatus), (e) => e.name);
 }
 
 // La ficha de persona muestra el equipamiento de su mismo sector (ya no hay
@@ -29,7 +38,7 @@ export async function getById(id: string) {
   const employee = await repo.findById(id);
   if (!employee) throw HttpError.notFound('Persona no encontrada.');
   const sectorEquipment = employee.sectorId ? await equipmentRepo.findBySector(employee.sectorId) : [];
-  return { ...employee, sectorEquipment };
+  return { ...withWorkingStatus(employee), sectorEquipment };
 }
 
 export async function create(data: CreateEmployeeInput) {

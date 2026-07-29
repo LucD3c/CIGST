@@ -136,10 +136,17 @@ export function findMessageById(id: string) {
   return prisma.message.findUnique({ where: { id }, select: { id: true, conversationId: true, groupId: true } });
 }
 
+// Incluye el sector de la persona vinculada: al armar un grupo o elegir a
+// quien escribirle, saber de que area es cada uno evita confundir homonimos.
 export function findDirectory(excludingUserId: string) {
   return prisma.user.findMany({
     where: { deletedAt: null, status: 'Activo', id: { not: excludingUserId } },
-    select: { id: true, name: true, role: { select: { name: true } } },
+    select: {
+      id: true,
+      name: true,
+      role: { select: { name: true } },
+      employee: { select: { sector: { select: { name: true } } } },
+    },
     orderBy: { name: 'asc' },
   });
 }

@@ -52,6 +52,32 @@ plataforma lo rechaza aunque se intente por otra vía.
 
 ---
 
+## Ordenar y buscar en cualquier lista
+
+Esto vale para **todas** las listas de la plataforma: Tickets, Personas,
+Equipos y espacios, Sectores, Turnos y el Panel administrador.
+
+- **Ordenar**: hacé clic en el título de una columna y la lista se ordena por
+  ella; un segundo clic la invierte. La flecha ▲ / ▼ muestra por cuál está
+  ordenada y en qué sentido.
+- **Buscar**: el casillero de arriba filtra a medida que escribís, y el orden
+  que elegiste se mantiene.
+
+El orden alfabético es **el que uno espera**, no el de la computadora: no
+distingue mayúsculas de minúsculas, ubica los acentos y la ñ donde
+corresponde en castellano ("Ávila" va junto a "Ana", no al final), y compara
+los números por valor — *Consultorio 3* antes que *Consultorio 213*.
+
+Dos columnas se ordenan por su propio criterio en vez del abecedario, porque
+es lo útil: **Prioridad** va de Crítica a Baja, y **Estado** sigue el avance
+del ticket (Nuevo → … → Cerrado).
+
+**Los desplegables de los formularios** también vienen ordenados
+alfabéticamente con el mismo criterio, así no hay que buscar a alguien en
+una lista desordenada.
+
+---
+
 ## El Centro de operaciones
 
 ![Centro de operaciones](img/centro-de-operaciones.png)
@@ -79,9 +105,14 @@ asignado a vos, y alta en un grupo de chat.
 
 **Crear** (cualquier rango): + Nuevo ticket / + Solicitar soporte → elegí a
 la **persona a asistir** (vos u otra persona), título breve, descripción, y
-si corresponde el **equipo o espacio** — al elegirlo, el **sector se
-completa solo**. La **categoría** cambia según el sector elegido: cada área
-tiene las suyas. La fecha y hora se registran solas.
+si corresponde el **equipo o espacio**.
+
+Aparte va el **Sector a requerir**: a qué área le estás pidiendo la ayuda.
+Es una decisión tuya y arranca vacío a propósito — **no** se deduce de dónde
+está ubicada la persona ni el equipo. Alguien de Administración puede
+pedirle a Mantenimiento por una PC que está en Depósito, y las tres cosas
+son distintas. La **categoría** se arma con las que definió ese sector: si
+cambiás el sector, cambia la lista. La fecha y hora se registran solas.
 
 También podés **adjuntar archivos** (imágenes, PDF o planillas): hasta 5 por
 ticket, de 10 MB cada uno. Es la forma más rápida de mostrar el problema —
@@ -94,6 +125,12 @@ cambiar estado, asignar responsable y anotar la solución; el menú ⋮ de cada
 fila resuelve/cierra/asigna sin abrir nada. El ticket siempre muestra los
 datos **actuales** del equipo involucrado, aunque haya cambiado después.
 
+**Ocultar los cerrados.** Arriba de la lista hay un selector de estado que
+arranca en **«Sin cerrados ni cancelados»**: en el día a día lo que importa
+es lo que sigue abierto. Al lado se ve el conteo ("5 de 7") para saber
+cuántos se están ocultando. Las otras opciones son *Todos los estados*,
+*Solo cerrados* y cada estado por separado.
+
 ---
 
 ## Personas
@@ -104,6 +141,29 @@ La ficha de cada colaborador: sector, contacto, horario, tickets y el
 equipamiento de su sector (clickeable). **Crear y editar es del
 Administrador**; cada edición deja una línea automática en el panel
 **Cambios** de la ficha ("de X a Y", con fecha y hora).
+
+### Horario laboral y disponibilidad
+
+En la ficha se cargan **hora de entrada** y **hora de salida** eligiéndolas
+de un reloj — no hay que escribir el horario a mano. Con eso la plataforma
+muestra sola, en la lista y en la ficha, si la persona está:
+
+| | |
+|---|---|
+| **En línea** | La hora actual cae dentro de su horario. |
+| **Fuera de horario** | Tiene horario cargado, pero ahora no está. |
+| **Sin horario** | Todavía no se le cargó ninguno. |
+
+El cálculo lo hace el **servidor**, no la computadora de cada uno: todos ven
+el mismo estado aunque tengan el reloj desajustado. Los **turnos que cruzan
+la medianoche** funcionan igual (22:00 a 06:00 marca *en línea* a las 2 de
+la mañana). Para dejar de mostrar disponibilidad, se borran las dos horas.
+
+### Eliminar una persona
+
+El botón **Eliminar** está dentro de *Editar* (solo Administrador). Los
+**tickets que esa persona pidió no se borran**: siguen en la lista con su
+nombre, para que no se pierda el historial.
 
 ---
 
@@ -121,11 +181,15 @@ efectivamente recibe pedidos. Si el pedido es "arreglar la puerta del
 consultorio 213", alcanza con tener cargado ese consultorio y describir el
 arreglo en la descripción del ticket.
 
-Cada uno vive en un sector. **Editar es del Administrador**: cada cambio de
-nombre, sector o estado queda registrado automáticamente en el panel
-**Cambios**, con el valor anterior y el nuevo. No conviene crear uno nuevo
-al reemplazar un equipo: se edita el existente y el historial guarda lo que
-había antes.
+Cada uno **vive en un sector**, que dice dónde está ubicado. Ojo: eso es
+independiente del *sector a requerir* de un ticket — que una impresora esté
+en Depósito no significa que el arreglo se le pida a Depósito.
+
+**Editar es del Administrador**: cada cambio de nombre, sector o estado
+queda registrado automáticamente en el panel **Cambios**, con el valor
+anterior y el nuevo. No conviene crear uno nuevo al reemplazar un equipo: se
+edita el existente y el historial guarda lo que había antes. El botón
+**Eliminar** está dentro de *Editar*; los tickets asociados no se borran.
 
 ---
 
@@ -142,8 +206,17 @@ Las áreas de la empresa. El detalle de un sector muestra:
   mismo. Ejemplo: Sistemas puede tener "Hardware", "Red / conectividad";
   Mantenimiento, "Arreglar", "Modificación"; y cada área las suyas.
 
+Con **+ Agregar persona a este sector** se da de alta a alguien sin salir de
+la pantalla: el sector viene precargado y al guardar seguís donde estabas.
+
 Al eliminar una categoría, los tickets que ya la usaron **no se modifican**
 — simplemente deja de ofrecerse para tickets nuevos.
+
+**Eliminar un sector** se hace desde *Editar*. Si todavía tiene gente o
+equipos adentro, la plataforma no lo borra y avisa cuántos hay: primero se
+los mueve a otro sector (o se los deja sin sector) y recién ahí se elimina.
+Es a propósito — si no, esas fichas quedarían señalando un sector que ya no
+existe.
 
 En la misma pantalla se definen los turnos de soporte. Todo esto lo
 administra el Administrador; el Supervisor lo ve.
@@ -164,8 +237,10 @@ tarjeta para descargar. Se puede mandar un archivo sin escribir nada.
 
 - **Grupos**: los crea el Administrador (+ Nuevo grupo), elige integrantes de
   cualquier rango (cada uno recibe una notificación), y puede editarlos o
-  eliminarlos. Todos los integrantes leen y escriben; cada mensaje muestra
-  quién lo mandó.
+  eliminarlos. Al elegir integrantes, **al lado de cada nombre aparece su
+  sector** — así no se confunden dos personas que se llaman parecido — y la
+  lista viene ordenada alfabéticamente. Todos los integrantes leen y
+  escriben; cada mensaje muestra quién lo mandó.
 - **Privacidad**: una conversación la ven solo sus participantes y un grupo
   solo sus integrantes. Nadie más — ni siquiera un Administrador que no sea
   parte.
@@ -195,3 +270,26 @@ ticket cambia de estado, y lo ves en "Mis solicitudes".
 **¿Quién puede leer mis chats?** Solo los participantes.
 
 **¿La información sale a internet?** No, nunca.
+
+**Aparece "En línea" alguien que no está.** El estado sale del **horario
+cargado en su ficha**, no de si tiene la plataforma abierta: dice que está
+dentro de su franja laboral. Si el horario cambió, se corrige en la ficha.
+
+**Al crear un ticket el Sector aparece vacío.** Es a propósito: el *Sector a
+requerir* es a quién le pedís la ayuda, y eso lo elegís vos. No se deduce de
+dónde está la persona ni el equipo.
+
+**El desplegable de Categoría dice "Elegí primero el sector a requerir".**
+Las categorías las define cada sector, así que primero se elige el sector.
+Si dice "Este sector no tiene categorías cargadas", un Administrador puede
+agregárselas desde Sectores → el sector → *Categorías de ticket*.
+
+**No me deja borrar un sector.** Tiene personas o equipos adentro; el aviso
+dice cuántos. Movelos a otro sector (o dejalos sin sector, eligiendo "Sin
+definir" en su ficha) y después sí se elimina.
+
+**Borré una persona: ¿se fueron sus tickets?** No. Los tickets quedan con su
+nombre para no perder el historial.
+
+**No encuentro el botón Eliminar.** Está adentro de **Editar**, y solo lo ve
+un Administrador. Tu propia cuenta de usuario no ofrece eliminarse.
