@@ -3,7 +3,7 @@
 # CIGST
 ### Centro Integral de Gestión de Soporte Técnico
 
-**Tickets con adjuntos · Categorías por sector · Personas · Equipos y espacios · Chat en tiempo real · Notificaciones**
+**Feed de novedades · Bases de conocimiento · Tickets con adjuntos · Personas · Equipos y espacios · Chat en tiempo real**
 
 Todo en un solo lugar, corriendo **100% dentro de la red de la empresa** —
 sin depender de internet ni de ningún servicio externo, en ningún momento.
@@ -58,9 +58,21 @@ el detalle completo de esa garantía.
 | Nadie se entera de un cambio salvo que lo busque | Notificaciones dentro de la plataforma, con un click al destino |
 | "¿Ese ya se fue?" — hay que preguntar quién está | Horario laboral por persona: en línea / fuera de horario, calculado solo |
 | Listas larguísimas donde los cerrados tapan lo urgente | Columnas ordenables y filtro que oculta los cerrados por defecto |
+| Los avisos de la empresa se pierden en un grupo de WhatsApp | Feed de novedades, con la grilla del sábado como tabla y no como captura |
+| Las claves de las obras sociales, en un Excel que circula por mail | Bases de conocimiento por área, con permisos y datos sensibles tapados |
 
 ## Funciones principales
 
+- 📰 **Feed de novedades** — el tablero de la empresa: avisos, novedades y la
+  grilla de puestos del sábado. Publican Administradores y Supervisores; lo lee
+  todo el personal. Se puede **pegar una tabla desde Excel** y queda como tabla
+  de verdad (se busca, se lee en el celular, no es una captura de pantalla). Con
+  comentarios, "me gusta", publicaciones fijadas y quiénes la leyeron.
+- 📚 **Bases de conocimiento** — cada área arma la suya (Facturación, Sistemas,
+  RR.HH.) con secciones y artículos: instructivos, accesos y procedimientos.
+  Quien la crea decide **quién la lee y quién la edita**, por sector, por rango
+  o por persona. Los datos sensibles (usuarios y claves compartidas) se muestran
+  **tapados** hasta que alguien los revela con un clic.
 - 🎫 **Tickets** — alta en segundos (todo por listas desplegables), estado,
   prioridad, responsable asignado y solución aplicada. Menú de acciones
   rápidas para resolver/cerrar/asignarse sin abrir el detalle.

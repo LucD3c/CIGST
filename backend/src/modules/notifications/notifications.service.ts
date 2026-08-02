@@ -5,7 +5,7 @@ import * as repo from './notifications.repository';
 export async function notify(
   userIds: (string | null | undefined)[],
   title: string,
-  targetType: 'ticket' | 'chat' | 'group',
+  targetType: 'ticket' | 'chat' | 'group' | 'post',
   targetId: string | null,
   excludeUserId?: string,
 ) {

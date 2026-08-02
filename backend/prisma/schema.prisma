@@ -57,6 +57,13 @@ model User {
   chatGroupsCreated    ChatGroup[]       @relation("ChatGroupCreator")
   chatGroupMemberships ChatGroupMember[]
   attachmentsUploaded  Attachment[]
+  posts                Post[]         @relation("PostAuthor")
+  postComments         PostComment[]  @relation("PostCommentAuthor")
+  postReactions        PostReaction[] @relation("PostReactionUser")
+  postViews            PostView[]     @relation("PostViewUser")
+  kbSpacesCreated      KbSpace[]      @relation("KbSpaceCreator")
+  kbArticlesEdited     KbArticle[]    @relation("KbArticleEditor")
+  kbPermissions        KbPermission[] @relation("KbPermissionUser")
 
   @@index([roleId])
   @@index([employeeId])
@@ -92,10 +99,12 @@ model Sector {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  employees  Employee[]
-  equipment  Equipment[]
-  tickets    Ticket[]
-  categories TicketCategory[]
+  employees     Employee[]
+  equipment     Equipment[]
+  tickets       Ticket[]
+  categories    TicketCategory[]
+  posts         PostSector[]
+  kbPermissions KbPermission[]
 
   @@map("sectors")
 }
@@ -328,15 +337,21 @@ model Attachment {
   size         Int
   ticketId     String?  @map("ticket_id")
   messageId    String?  @map("message_id")
+  postId       String?  @map("post_id")
+  articleId    String?  @map("article_id")
   uploadedById String?  @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  ticket     Ticket?  @relation(fields: [ticketId], references: [id], onDelete: SetNull)
-  message    Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  uploadedBy User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  ticket     Ticket?    @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  message    Message?   @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  post       Post?      @relation(fields: [postId], references: [id], onDelete: SetNull)
+  article    KbArticle? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  uploadedBy User?      @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
   @@index([messageId])
+  @@index([postId])
+  @@index([articleId])
   @@index([uploadedById])
   @@map("attachments")
 }
@@ -382,4 +397,218 @@ model LogbookEntry {
   @@index([relatedTicketId])
   @@index([relatedEquipmentId])
   @@map("logbook_entries")
+}
+
+// ============================================================
+// FEED DE NOVEDADES
+// ============================================================
+// Tablero interno donde Administradores y Supervisores publican novedades
+// de la empresa (una noticia, la grilla de puestos del sabado, un aviso).
+// Lo lee todo el personal segun a quien este dirigida cada publicacion.
+//
+// El contenido NO se guarda como HTML: se guarda como una lista de bloques
+// con estructura conocida (ver PostBlock). El renderizado arma el HTML a
+// partir de esos datos escapando cada texto, asi el contenido que escribe
+// una persona nunca puede convertirse en marcado ejecutable.
+
+model Post {
+  id        String    @id @default(uuid())
+  authorId  String?   @map("author_id")
+  title     String
+  // "todos" o "sectores": si es "sectores", los destinatarios estan en
+  // PostSector. Se guarda explicito para no confundir "dirigida a nadie"
+  // con "dirigida a todos".
+  audience  String    @default("todos")
+  pinned    Boolean   @default(false)
+  viewCount Int       @default(0) @map("view_count")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  author User? @relation("PostAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  blocks      PostBlock[]
+  sectors     PostSector[]
+  comments    PostComment[]
+  reactions   PostReaction[]
+  views       PostView[]
+  attachments Attachment[]
+
+  @@index([pinned, createdAt])
+  @@index([authorId])
+  @@map("posts")
+}
+
+// Un bloque de contenido. `kind` dice de que tipo es (titulo, texto, tabla,
+// imagen, archivo, enlace, tarjeta, oculto) y `data` guarda sus campos ya
+// validados por Zod contra el esquema de ESE tipo. Nunca HTML libre.
+model PostBlock {
+  id       String @id @default(uuid())
+  postId   String @map("post_id")
+  kind     String
+  position Int
+  data     Json
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, position])
+  @@map("post_blocks")
+}
+
+// Destinatarios cuando la publicacion no es para todos.
+model PostSector {
+  id       String @id @default(uuid())
+  postId   String @map("post_id")
+  sectorId String @map("sector_id")
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  sector Sector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, sectorId])
+  @@index([sectorId])
+  @@map("post_sectors")
+}
+
+model PostComment {
+  id        String    @id @default(uuid())
+  postId    String    @map("post_id")
+  authorId  String?   @map("author_id")
+  body      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  post   Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User? @relation("PostCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([postId, createdAt])
+  @@map("post_comments")
+}
+
+// Una reaccion por persona y publicacion (el "me gusta" del feed).
+model PostReaction {
+  id        String   @id @default(uuid())
+  postId    String   @map("post_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation("PostReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+  @@map("post_reactions")
+}
+
+// Quien vio cada publicacion. Es una fila por persona (no un contador suelto)
+// para poder mostrar "lo leyeron 42" y quienes son, sin inflarse con recargas.
+model PostView {
+  id       String   @id @default(uuid())
+  postId   String   @map("post_id")
+  userId   String   @map("user_id")
+  viewedAt DateTime @default(now()) @map("viewed_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation("PostViewUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+  @@map("post_views")
+}
+
+// ============================================================
+// BASES DE CONOCIMIENTO
+// ============================================================
+// Cada area arma la suya (Facturacion, Sistemas, RR.HH.). Adentro hay
+// secciones y articulos, y cada articulo se compone de los mismos bloques
+// que el feed. Quien crea la base -o un Administrador- decide que sectores,
+// rangos o personas pueden leerla y quienes pueden editarla.
+
+model KbSpace {
+  id          String    @id @default(uuid())
+  // Sin @unique a nivel de columna: la unicidad se aplica SOLO entre las
+  // bases vivas, con un indice parcial creado en la migracion
+  // (`WHERE deleted_at IS NULL`). Con un unique comun, borrar una base
+  // dejaba su nombre ocupado para siempre y el aviso decia que ya existia
+  // una base que el usuario no veia por ningun lado.
+  name        String
+  description String?
+  icon        String?
+  createdById String?   @map("created_by_id")
+  status      String    @default("Activo")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  createdBy User? @relation("KbSpaceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  sections    KbSection[]
+  permissions KbPermission[]
+
+  @@map("kb_spaces")
+}
+
+model KbSection {
+  id       String @id @default(uuid())
+  spaceId  String @map("space_id")
+  name     String
+  position Int    @default(0)
+
+  space    KbSpace     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  articles KbArticle[]
+
+  @@index([spaceId, position])
+  @@map("kb_sections")
+}
+
+model KbArticle {
+  id          String    @id @default(uuid())
+  sectionId   String    @map("section_id")
+  title       String
+  position    Int       @default(0)
+  updatedById String?   @map("updated_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  section   KbSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  updatedBy User?     @relation("KbArticleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  blocks      KbBlock[]
+  attachments Attachment[]
+
+  @@index([sectionId, position])
+  @@map("kb_articles")
+}
+
+model KbBlock {
+  id        String @id @default(uuid())
+  articleId String @map("article_id")
+  kind      String
+  position  Int
+  data      Json
+
+  article KbArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, position])
+  @@map("kb_blocks")
+}
+
+// Un permiso apunta a UNA sola cosa: un sector, un rango o una persona.
+// `level` es "lectura" o "edicion" (edicion implica lectura).
+model KbPermission {
+  id       String  @id @default(uuid())
+  spaceId  String  @map("space_id")
+  level    String
+  sectorId String? @map("sector_id")
+  role     String?
+  userId   String? @map("user_id")
+
+  space  KbSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  sector Sector? @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  user   User?   @relation("KbPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([spaceId])
+  @@index([sectorId])
+  @@index([userId])
+  @@map("kb_permissions")
 }

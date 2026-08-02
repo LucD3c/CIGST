@@ -159,9 +159,43 @@ de que el usuario fuerce una recarga.
   de `express-rate-limit` son middleware HTTP y no ven un solo byte de lo que
   entra por el WebSocket. El cupo es el mismo que por HTTP (30 mensajes por
   minuto por usuario) para que el límite efectivo no dependa del transporte.
+- **Feed** (`/api/feed`) y **bases de conocimiento** (`/api/knowledge`):
+  comparten el motor de bloques (`utils/contentBlocks.ts`). El permiso del feed
+  es por destinatario (`todos` o sectores) y el de una base sale de
+  `knowledge.permissions.ts`, que combina sector, rango y persona. Un endpoint
+  de base a la que no se tiene acceso responde **404, no 403**: quien no la
+  puede ver tampoco deberia poder deducir que existe probando identificadores.
 - **Referencias opcionales**: `utils/commonSchemas.ts → nullableUuid` acepta
   las tres formas de "sin valor" (`''` del formulario, `null` explícito de
   la API, campo ausente) y las guarda como `null`.
+
+## Decisión: contenido por bloques, nunca HTML del usuario
+
+El feed y las bases de conocimiento necesitan texto con formato, tablas,
+imágenes y tarjetas. La forma habitual de resolver eso es guardar HTML escrito
+por el usuario — y ahí aparece el XSS: alcanza con un `<img onerror=…>` en una
+celda pegada desde Excel para ejecutar código en la sesión de quien lo lea.
+
+Acá el contenido se guarda como una **lista de bloques con estructura
+conocida** (`utils/contentBlocks.ts`): cada bloque tiene un `kind` y unos
+campos validados con Zod contra el esquema de **ese** tipo. El cliente arma el
+HTML a partir de esos datos escapando cada texto con `esc()`.
+
+**No se guarda ni se renderiza marcado del usuario en ningún punto.** El XSS
+deja de ser un riesgo a mitigar y pasa a ser imposible por construcción: no
+hay por dónde entrar. Se verificó con payloads reales, incluida una tabla de
+Excel con HTML malicioso pegada en el editor.
+
+Efectos laterales, todos buenos:
+
+- El formato es un dato, así que **todo se ve igual** lo escriba quien lo
+  escriba: no hay diez tipografías ni diez tamaños de título.
+- Se puede **buscar dentro del contenido** sin parsear HTML.
+- Al pegar desde Excel se extraen **solo filas y celdas** (`DOMParser` sobre un
+  documento inerte, leyendo `textContent`): estilos, scripts e imágenes del
+  pegado se descartan y nunca se guardan.
+- Los campos marcados como sensibles quedan fuera del texto de búsqueda: no
+  tendría sentido taparlos en pantalla y devolverlos en un resultado.
 
 ## Decisión: tiempo real por WebSocket
 

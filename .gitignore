@@ -6,3 +6,6 @@ dist/
 
 # Copias de seguridad: contienen datos reales y una copia del .env
 backups/
+
+# Configuracion local de herramientas de desarrollo
+.claude/

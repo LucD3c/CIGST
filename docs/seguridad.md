@@ -280,3 +280,27 @@ puerto que el resto de la plataforma.
 > ellas es de seguridad: sin `TRUST_PROXY=true`, el límite de intentos de login
 > cuenta a toda la empresa como una sola IP. Ver
 > [`deployment-empresa.md`](deployment-empresa.md).
+
+## Feed y bases de conocimiento
+
+| Riesgo | Cómo se cierra | Verificado |
+|---|---|---|
+| XSS por contenido con formato | No se guarda HTML del usuario: el contenido son bloques con estructura conocida y el marcado lo arma el cliente escapando cada texto | Payloads con `<script>` y `<img onerror>` en título, texto y celdas: se muestran literales y no se ejecutan |
+| XSS al pegar desde Excel | Del HTML pegado se extraen solo filas y celdas, leyendo `textContent` sobre un documento inerte | Tabla de Excel con marcado malicioso pegada en el editor |
+| Enlaces `javascript:` | El esquema de un enlace solo admite `http://` y `https://`, validado en el servidor y de nuevo al renderizar | Rechazado con 400 |
+| Ver una publicación dirigida a otro sector | La audiencia se calcula contra la base; el listado, el acceso directo, comentar y reaccionar la vuelven a comprobar | 403 en los cuatro caminos |
+| Ver una base sin permiso | `knowledge.permissions.ts` combina sector, rango y persona, y responde **404** para no revelar que existe | 404 en la base y en sus artículos; tampoco aparece en la búsqueda |
+| Editar con permiso de solo lectura | El nivel se resuelve en el servidor en cada operación de escritura | 403 |
+| Publicar sin ser staff | `requireRole` en la ruta, más la comprobación de autor para editar y borrar | 403 |
+| Robar una imagen de otra publicación | Un adjunto ya vinculado no se puede re-vincular: el chequeo exige que esté suelto o que ya pertenezca a ese mismo destino | Rechazado |
+| Descargar una imagen de una base ajena | El permiso de un adjunto es el de su publicación o su base | 403 |
+| Contenido desmedido | Topes por tipo de bloque: 60 bloques, 200 filas, 12 columnas, 5000 caracteres | Rechazados con 400 |
+
+> **Sobre las claves compartidas.** Una base de conocimiento con usuarios y
+> contraseñas de terceros (obras sociales, portales de proveedores) deja de ser
+> documentación y pasa a ser un llavero. Los campos marcados como sensibles se
+> muestran tapados, pero **quien tiene permiso de lectura puede revelarlos**:
+> la protección real es a quién se le da acceso a esa base. Tener presente,
+> además, que las copias de seguridad son volcados de la base en texto plano —
+> con este contenido adentro, ese archivo pasa a ser tan sensible como las
+> claves mismas.

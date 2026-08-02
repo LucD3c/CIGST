@@ -54,6 +54,36 @@ export async function linkToMessage(ids: string[] | undefined, messageId: string
   if (valid.length) await repo.attachToMessage(valid, messageId);
 }
 
+/**
+ * Vincula los adjuntos que usan los bloques de una publicacion, y desvincula
+ * los que dejaron de usarse. A diferencia de tickets y mensajes, aca el
+ * contenido se EDITA: al volver a guardar llegan ids que ya pertenecen a esta
+ * misma publicacion, y tienen que seguir siendo validos.
+ */
+export async function linkToPost(ids: string[], postId: string, userId: string) {
+  const unique = [...new Set(ids)];
+  if (unique.length) {
+    const found = await repo.findReusableForTarget(unique, userId, { postId });
+    if (found.length !== unique.length) {
+      throw HttpError.badRequest('Alguna de las imágenes ya no está disponible. Volvé a subirla.');
+    }
+    await repo.attachToPost(unique, postId);
+  }
+  await repo.detachFromPostExcept(postId, unique);
+}
+
+export async function linkToArticle(ids: string[], articleId: string, userId: string) {
+  const unique = [...new Set(ids)];
+  if (unique.length) {
+    const found = await repo.findReusableForTarget(unique, userId, { articleId });
+    if (found.length !== unique.length) {
+      throw HttpError.badRequest('Alguna de las imágenes ya no está disponible. Volvé a subirla.');
+    }
+    await repo.attachToArticle(unique, articleId);
+  }
+  await repo.detachFromArticleExcept(articleId, unique);
+}
+
 // Igual que en tickets.service: staff ve todo, User solo lo suyo.
 async function canReadTicket(user: SessionUser, ticketId: string) {
   if (user.role === ROLES.ADMIN || user.role === ROLES.SUPERVISOR) return true;
@@ -87,6 +117,29 @@ async function canReadMessage(user: SessionUser, messageId: string) {
 
 // Devuelve los datos para servir el archivo, recien despues de comprobar que
 // quien pide tiene derecho a ver el ticket/mensaje que lo contiene.
+// El permiso de una imagen del feed es el de la publicacion que la contiene:
+// si la publicacion va a un sector, su imagen tambien.
+async function canReadPost(user: SessionUser, postId: string) {
+  const post = await prisma.post.findFirst({
+    where: { id: postId, deletedAt: null },
+    select: { id: true, audience: true, authorId: true },
+  });
+  if (!post) return false;
+  const feed = await import('../feed/feed.service');
+  return feed.puedeVer(user, post);
+}
+
+// Y el de una imagen de una base de conocimiento es el de esa base.
+async function canReadArticle(user: SessionUser, articleId: string) {
+  const article = await prisma.kbArticle.findFirst({
+    where: { id: articleId, deletedAt: null },
+    select: { section: { select: { spaceId: true } } },
+  });
+  if (!article) return false;
+  const permisos = await import('../knowledge/knowledge.permissions');
+  return (await permisos.nivelDe(user, article.section.spaceId)) !== null;
+}
+
 export async function getForDownload(user: SessionUser, id: string) {
   const attachment = await repo.findById(id);
   if (!attachment) throw HttpError.notFound('Archivo no encontrado.');
@@ -94,6 +147,8 @@ export async function getForDownload(user: SessionUser, id: string) {
   let allowed = false;
   if (attachment.ticketId) allowed = await canReadTicket(user, attachment.ticketId);
   else if (attachment.messageId) allowed = await canReadMessage(user, attachment.messageId);
+  else if (attachment.postId) allowed = await canReadPost(user, attachment.postId);
+  else if (attachment.articleId) allowed = await canReadArticle(user, attachment.articleId);
   else allowed = attachment.uploadedById === user.id; // todavia sin enviar
 
   if (!allowed) throw HttpError.forbidden('No tenés acceso a este archivo.');

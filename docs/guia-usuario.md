@@ -43,9 +43,9 @@ desde el Panel administrador.
 
 | Rango | Qué puede hacer |
 | --- | --- |
-| **Administrador** | Todo: crea y edita personas, usuarios, equipos, sectores y turnos (cada edición deja registro de cambios), gestiona tickets, usa el chat, crea los grupos, y es el único que ve Bitácora técnica y Panel administrador. |
-| **Supervisor** | Ve todo el trabajo de soporte y lo opera: crea y gestiona tickets de cualquiera. Ve personas, equipos y sectores con sus historiales, pero **no puede crear ni editar** esos catálogos. No ve Bitácora ni Panel administrador. |
-| **User** | Crea tickets para sí mismo o para cualquier persona (con adjuntos), ve solo sus propias solicitudes, y usa el chat (1 a 1 y los grupos donde lo agregaron). Nada más. |
+| **Administrador** | Todo: crea y edita personas, usuarios, equipos, sectores y turnos (cada edición deja registro de cambios), gestiona tickets, usa el chat, crea los grupos, publica en Novedades, crea bases de conocimiento y define sus permisos. Es el único que ve Bitácora técnica y Panel administrador. |
+| **Supervisor** | Ve todo el trabajo de soporte y lo opera: crea y gestiona tickets de cualquiera. **Publica en Novedades** (y administra lo suyo). Ve personas, equipos y sectores con sus historiales, pero **no puede crear ni editar** esos catálogos. No ve Bitácora ni Panel administrador. |
+| **User** | Crea tickets para sí mismo o para cualquier persona (con adjuntos) y ve solo sus propias solicitudes. Usa el chat (1 a 1 y los grupos donde lo agregaron). **Lee Novedades y comenta**, pero no publica. Entra a las **bases de conocimiento a las que le dieron permiso**. |
 
 Los permisos se controlan en el servidor: lo que tu rango no permite, la
 plataforma lo rechaza aunque se intente por otra vía.
@@ -75,6 +75,107 @@ del ticket (Nuevo → … → Cerrado).
 **Los desplegables de los formularios** también vienen ordenados
 alfabéticamente con el mismo criterio, así no hay que buscar a alguien en
 una lista desordenada.
+
+---
+
+## Novedades: el tablero de la empresa
+
+![Feed de novedades](img/feed.png)
+
+Es la pantalla con la que se entra. Ahí aparecen los avisos, las novedades y
+los horarios: quién cubre cada puesto el sábado, un cambio de proveedor, una
+capacitación.
+
+**Publican Administradores y Supervisores. Lee todo el personal.**
+
+### Escribir una publicación
+
+**+ Nueva publicación** → título, para quién es, y el contenido. El contenido
+se arma con **bloques**, y se agregan los que hagan falta:
+
+| Bloque | Para qué |
+|---|---|
+| **Texto** | Un párrafo común. |
+| **Título** | Para separar partes largas. |
+| **Tabla** | La grilla de puestos, un cuadro de guardias, cualquier planilla. |
+| **Lista** | Puntos o pasos numerados. |
+| **Imagen** | Una foto o una captura. |
+| **Archivo** | Un PDF o una planilla para descargar. |
+| **Aviso** | Un recuadro de color para lo importante. |
+| **Enlace** | Un link a un sistema o a un portal. |
+| **Tarjeta de datos** | Un bloque con datos etiquetados (más usado en las bases). |
+
+> **La grilla del sábado, sin sufrir.** Agregá un bloque de **Tabla** y
+> **pegá directamente desde Excel** en cualquier casillero: la tabla se
+> completa sola, con la primera fila como encabezado. No hace falta cargar
+> celda por celda ni mandar una captura de pantalla.
+
+**Para quién es**: *Toda la empresa* o *Solo algunos sectores*. Si elegís
+sectores, la publicación **no le aparece a nadie más** — ni en la lista ni
+entrando por el enlace directo.
+
+### Leer, comentar y reaccionar
+
+Cualquier persona puede **comentar** y poner **👍 Me gusta** en lo que ve.
+El **👁 con un número** dice cuántos la leyeron; tocándolo se ve quiénes.
+
+Quien publicó (y un Administrador) puede **fijarla arriba** con la estrella
+⭐, editarla o eliminarla. Las fijadas siempre quedan primeras.
+
+Todo esto es **en tiempo real**: una publicación nueva, un comentario o un
+"me gusta" aparecen solos, sin recargar.
+
+---
+
+## Bases de conocimiento
+
+![Base de conocimiento](img/base-conocimiento.png)
+
+Acá vive lo que hoy está en un Excel que circula por mail o en un cuaderno:
+los accesos a las obras sociales, cómo se hace un procedimiento, los
+instructivos de cada área.
+
+**Cada área arma la suya.** Adentro hay **secciones** (por ejemplo
+*Autorizaciones* dentro de *Facturación*) y adentro de cada sección, los
+**artículos**.
+
+### Quién ve qué
+
+Un Administrador crea la base y define los permisos desde el botón
+**Permisos**. Se puede dar acceso a:
+
+- un **sector** completo (todo Facturación),
+- un **rango** (todos los Supervisores),
+- una **persona** puntual.
+
+Y en dos niveles: **solo lectura** o **lectura y edición**.
+
+> Quien no tiene permiso **no ve la base**: no aparece en la lista, y entrando
+> por el enlace directo la plataforma responde que no existe. No es que se
+> oculte el botón — el servidor directamente no la entrega.
+
+### Escribir un artículo
+
+Se arma con los mismos bloques que el feed. El más usado acá es la
+**Tarjeta de datos**: título, logo opcional y una lista de datos etiquetados.
+Es lo que sirve para armar una tarjeta por obra social con su usuario, su
+clave y su nota.
+
+### Usuarios y contraseñas compartidas
+
+Al cargar un dato en una tarjeta se lo puede marcar como **Ocultar**. Ese
+valor se muestra tapado, con un botón **Mostrar**, y no aparece en los
+resultados de la búsqueda.
+
+> Sirve para que la clave de una prepaga no quede a la vista de cualquiera que
+> pase por detrás de la pantalla. **No es una caja fuerte**: quien tiene
+> permiso de lectura puede revelarla. La protección real es a quién le das
+> acceso a la base.
+
+### Buscar
+
+El casillero de arriba busca por título **y dentro del contenido**, pero solo
+en las bases que vos podés ver.
 
 ---
 
@@ -279,6 +380,17 @@ recargar la página no rompe nada.
 **¿Quién puede leer mis chats?** Solo los participantes.
 
 **¿La información sale a internet?** No, nunca.
+
+**Pegué una tabla de Excel y no se armó.** Tiene que ser un bloque de
+**Tabla**, y hay que pegar adentro de un casillero de esa tabla. Si copiaste
+una sola celda, se pega como texto normal (es lo esperado).
+
+**No veo una base de conocimiento que sí existe.** No te dieron permiso. Un
+Administrador te lo da desde *Bases de conocimiento → la base → Permisos*.
+
+**Publiqué para un sector y alguien de otro sector la vio.** Los
+Administradores ven todo el feed a propósito, para poder auditar lo que se
+publica. Fuera de eso, nadie más la ve.
 
 **Aparece "En línea" alguien que no está.** El estado sale del **horario
 cargado en su ficha**, no de si tiene la plataforma abierta: dice que está

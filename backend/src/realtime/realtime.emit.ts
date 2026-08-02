@@ -125,3 +125,65 @@ export function closeSocketsForUser(userId: string, reason: string, tokenHash?: 
   if (cerrados) logger.info({ userId, cerrados, reason }, 'Conexiones de tiempo real cerradas');
   return cerrados;
 }
+
+/* ---------- Feed de novedades ---------- */
+
+/**
+ * Publicacion nueva o editada. Solo a quienes pueden verla: si esta dirigida
+ * a sectores, la lista sale de consultar quien pertenece a esos sectores, no
+ * de nada que mande el cliente.
+ */
+export function postPublished(postId: string, resumen: unknown) {
+  safe('feed:post', async () => {
+    const { prisma } = await import('../db/prisma');
+    const post = await prisma.post.findFirst({
+      where: { id: postId, deletedAt: null },
+      select: { audience: true },
+    });
+    if (!post) return;
+    const feed = await import('../modules/feed/feed.service');
+    const destinatarios = await audience.onlyActive(await feed.usuariosQueVen(postId, post.audience));
+    registry.sendToUsers(destinatarios, 'feed:post', () => resumen);
+  });
+}
+
+export function postRemoved(postId: string) {
+  safe('feed:post-removed', async () => {
+    // La publicacion ya esta dada de baja: se avisa a todos los conectados y
+    // cada cliente la saca si la tenia en pantalla. No lleva contenido, asi
+    // que no filtra nada a quien no la veia.
+    registry.sendToUsers(registry.connectedUserIds(), 'feed:post-removed', () => ({ postId }));
+  });
+}
+
+export function postCommented(postId: string, comment: unknown) {
+  safe('feed:comment', async () => {
+    const destinatarios = await destinatariosDePost(postId);
+    registry.sendToUsers(destinatarios, 'feed:comment', () => comment);
+  });
+}
+
+export function postCommentRemoved(postId: string, commentId: string) {
+  safe('feed:comment-removed', async () => {
+    const destinatarios = await destinatariosDePost(postId);
+    registry.sendToUsers(destinatarios, 'feed:comment-removed', () => ({ postId, commentId }));
+  });
+}
+
+export function postReactionChanged(postId: string, count: number) {
+  safe('feed:reaction', async () => {
+    const destinatarios = await destinatariosDePost(postId);
+    registry.sendToUsers(destinatarios, 'feed:reaction', () => ({ postId, count }));
+  });
+}
+
+async function destinatariosDePost(postId: string): Promise<string[]> {
+  const { prisma } = await import('../db/prisma');
+  const post = await prisma.post.findFirst({
+    where: { id: postId, deletedAt: null },
+    select: { audience: true },
+  });
+  if (!post) return [];
+  const feed = await import('../modules/feed/feed.service');
+  return audience.onlyActive(await feed.usuariosQueVen(postId, post.audience));
+}

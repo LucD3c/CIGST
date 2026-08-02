@@ -188,6 +188,11 @@ function handleRealtimeEvent(event,data){
     case 'notification:new':return applyNotifCount(data?.unreadCount??0);
     case 'ticket:created':
     case 'ticket:updated':return onRealtimeTicket(data);
+    case 'feed:post':return onRealtimeFeedPost(data);
+    case 'feed:post-removed':return onRealtimeFeedRemoved(data);
+    case 'feed:comment':return onRealtimeFeedComment(data);
+    case 'feed:comment-removed':return onRealtimeFeedCommentRemoved(data);
+    case 'feed:reaction':return onRealtimeFeedReaction(data);
     case 'chat:sent':return rtPendingRefs.delete(data?.ref);
     case 'chat:error':
       rtPendingRefs.delete(data?.ref);
@@ -232,6 +237,46 @@ function onRealtimeChatRead(data){
   chatMessages=chatMessages.map(m=>(m.mine&&!m.readAt?{...m,readAt:ahora}:m));
   const pane=document.getElementById('chat-messages');
   if(pane){pane.innerHTML=chatMessages.map(chatBubble).join('');scrollChatToBottom();}
+}
+
+// Publicacion nueva o editada. El servidor solo la manda a quien puede verla.
+function onRealtimeFeedPost(post){
+  if(!post?.id)return;
+  const idx=feedPosts.findIndex(p=>p.id===post.id);
+  if(idx>=0)feedPosts[idx]={...feedPosts[idx],...post};
+  else{feedPosts.unshift(post);refreshFeedBadge();}
+  if(currentView==='feed')render();
+}
+function onRealtimeFeedRemoved(data){
+  if(!data?.postId)return;
+  const antes=feedPosts.length;
+  feedPosts=feedPosts.filter(p=>p.id!==data.postId);
+  if(currentView==='feed'&&feedPosts.length!==antes)render();
+}
+function onRealtimeFeedComment(c){
+  if(!c?.postId)return;
+  const post=feedPosts.find(p=>p.id===c.postId);
+  if(post)post.commentCount=(post.commentCount||0)+1;
+  if(feedComentarios.has(c.postId)){
+    const lista=feedComentarios.get(c.postId);
+    if(!lista.some(x=>x.id===c.id))feedComentarios.set(c.postId,[...lista,{...c,mine:c.author?.id===currentUser.id}]);
+  }
+  if(currentView==='feed')render();
+}
+function onRealtimeFeedCommentRemoved(data){
+  if(!data?.postId)return;
+  const post=feedPosts.find(p=>p.id===data.postId);
+  if(post)post.commentCount=Math.max(0,(post.commentCount||0)-1);
+  if(feedComentarios.has(data.postId)){
+    feedComentarios.set(data.postId,feedComentarios.get(data.postId).filter(c=>c.id!==data.commentId));
+  }
+  if(currentView==='feed')render();
+}
+function onRealtimeFeedReaction(data){
+  const post=feedPosts.find(p=>p.id===data?.postId);
+  if(!post)return;
+  post.reactionCount=data.count;
+  if(currentView==='feed')render();
 }
 
 // Ticket creado o modificado por otra persona. El servidor solo manda esto a
@@ -321,7 +366,7 @@ function applySessionUser(user) {
   chatConversations = []; chatGroups = []; activeChatConversationId = null; activeChatGroupId = null;
   chatMessages = []; chatUnreadCount = 0; notifUnreadCount = 0; currentDetailId = null;
   startRealtime();
-  currentView = isStaff() ? 'dashboard' : 'employee-portal';
+  currentView = 'feed';
 }
 async function loadStaffData() {
   const [employeesRes, equipmentRes, ticketsRes, techniciansRes, sectorsRes, schedulesRes, options] = await Promise.all([
@@ -470,7 +515,7 @@ const employee = id => store.employees.find(x => x.id === id);
 const equipment = id => store.equipment.find(x => x.id === id);
 const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
-const navItems = [ ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
+const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
 // Equipos y tambien LUGARES: un ticket puede apuntar a una PC o a un
 // consultorio/sala/puerta. Se carga solo lo que recibe pedidos, no un
 // inventario exhaustivo de la empresa.
@@ -482,7 +527,7 @@ const isStaff = () => currentUser?.role !== 'User';
 
 /* ---------- Vistas ---------- */
 function loginView(){app.innerHTML=`<main class="login-page"><section class="login-card"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><h1>Centro de Soporte</h1><p>Ingresá con las credenciales proporcionadas por Sistemas.</p><form id="login-form"><div class="field"><label for="username">Usuario</label><input id="username" name="username" required autocomplete="username" autofocus /></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" required autocomplete="current-password" /></div><div class="login-actions" style="justify-content:flex-end"><button class="btn btn-primary" type="submit">Iniciar sesión</button></div></form></section></main>`;$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const submitBtn=e.currentTarget.querySelector('button[type=submit]');submitBtn.disabled=true;try{const {user}=await api('/auth/login',{method:'POST',body:{username:form.get('username'),password:form.get('password')}});applySessionUser(user);await render();}catch(err){toast(apiErrorMessage(err));}finally{submitBtn.disabled=false;}});}
-function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
+function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const inicio=byId(['feed']);const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors','knowledge']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${nav(['knowledge','▦','Bases de conocimiento'])}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();feedPosts=[];feedComentarios.clear();feedAbiertos.clear();kbSpaces=[];kbSpace=null;kbArticle=null;chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
 const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span class="nav-badge">${chatUnreadCount>99?'99+':chatUnreadCount}</span>`:'';return `<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}${badge}</button>`;};
 function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
@@ -968,6 +1013,14 @@ async function removeSchedule(s){
 }
 
 function select(name,label,items,selected){return `<div class="field"><label>${label}</label><select name="${name}">${items.map(x=>{const v=Array.isArray(x)?x[0]:x;const l=Array.isArray(x)?x[1]:x;const sel=selected!==undefined&&String(v)===String(selected)?' selected':'';return `<option value="${esc(v)}"${sel}>${esc(l)}</option>`;}).join('')}</select></div>`}
+// Ventana de solo lectura: muestra algo y se cierra. No lleva formulario, asi
+// que no reusa modal(), que siempre espera un guardado.
+function modalInfo(titulo,html){
+  $('#modal-root').innerHTML=`<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>${esc(titulo)}</h2>`
+    +`<button class="close" type="button">×</button></div><div class="modal-body">${html}</div></div></div>`;
+  $('.close').onclick=closeModal;
+  $('.modal-backdrop').onclick=e=>{if(e.target===$('.modal-backdrop'))closeModal();};
+}
 function toast(message){const el=document.createElement('div');el.className='toast';el.textContent=message;document.body.append(el);setTimeout(()=>el.remove(),3000);}
 function wireRecords(root=document){
   root.querySelectorAll('[data-employee]').forEach(x=>x.onclick=e=>{e.stopPropagation();currentView='employee-detail';render(x.dataset.employee);});
@@ -1398,6 +1451,12 @@ async function openNotification(id,targetType,targetId){
     else toast('Ese ticket ya no está disponible.');
     return;
   }
+  if(targetType==='post'){
+    currentView='feed';
+    currentDetailId=null;
+    await render();
+    return;
+  }
   if(targetType==='group'||targetType==='chat'){
     currentView='chat';
     if(targetType==='group'&&targetId)activeChatGroupId=targetId;
@@ -1414,6 +1473,7 @@ function startRealtime(){
   connectRealtime();
   api('/chat/unread-count').then(({count})=>applyChatUnreadCount(count)).catch(()=>{});
   refreshNotifBadge();
+  refreshFeedBadge();
 }
 
 /* ---------- Router ---------- */
@@ -1425,20 +1485,29 @@ async function render(id){
   currentDetailId=id||null;
 
   if(!isStaff()){
-    if(currentView!=='chat')currentView='employee-portal';
+    // El rango User tambien entra a Novedades y a las Bases de conocimiento:
+    // no son herramientas de soporte, son informacion de la empresa.
+    const permitidas=['chat','feed','knowledge'];
+    if(!permitidas.includes(currentView))currentView='employee-portal';
     let content;
     try{
       if(currentView==='chat'){content=await chatView();}
+      else if(currentView==='feed'){await loadFeed(true);content=feedView();}
+      else if(currentView==='knowledge'){if(!kbSpace)await loadKbSpaces();content=kbView();}
       else{await loadEmployeeData();content=employeePortal();}
     }catch(err){handleApiError(err);return;}
     shell(content);wirePage();
     if(currentView==='chat')wireChatView();
+    if(currentView==='feed')wireFeed();
+    if(currentView==='knowledge')wireKb();
     return;
   }
   if(currentView==='users'&&!isAdmin())currentView='dashboard';
   if(currentView==='logbook'&&!isAdmin())currentView='dashboard';
   try{
-    if(currentView!=='chat')await loadStaffData();
+    if(!['chat','feed','knowledge'].includes(currentView))await loadStaffData();
+    if(currentView==='feed'){await loadStaffData();await loadFeed(true);}
+    if(currentView==='knowledge'&&!kbSpace)await loadKbSpaces();
     if(currentView==='users')await loadUsers();
   }catch(err){handleApiError(err);return;}
   let content;
@@ -1450,6 +1519,8 @@ async function render(id){
     case 'logbook':content=logbookView();break;
     case 'users':content=usersView();break;
     case 'chat':content=await chatView();break;
+    case 'feed':content=feedView();break;
+    case 'knowledge':content=kbView();break;
     case 'employee-detail':{
       if(!id){currentView='employees';content=employeesView();break;}
       let detail;
@@ -1476,6 +1547,8 @@ async function render(id){
   }
   shell(content);wirePage();
   if(currentView==='chat')wireChatView();
+  if(currentView==='feed')wireFeed();
+  if(currentView==='knowledge')wireKb();
   if(currentView==='sector-detail')wireSectorCategories();
 }
 
@@ -1484,3 +1557,945 @@ async function render(id){
   catch{session=false;currentUser=null;}
   render();
 })();
+
+/* ---------- Bloques de contenido: renderizado y edicion ---------- */
+// Lo comparten el Feed y las Bases de conocimiento. El contenido NUNCA es
+// HTML del usuario: son datos con estructura conocida y aca se arma el
+// marcado escapando cada texto con esc(). Por eso no hay forma de inyectar
+// nada desde el contenido, ni escribiendolo a mano ni pegandolo desde Excel.
+
+const BLOQUE_ETIQUETAS = {
+  titulo: 'Título',
+  texto: 'Texto',
+  lista: 'Lista',
+  tabla: 'Tabla',
+  imagen: 'Imagen',
+  archivo: 'Archivo',
+  aviso: 'Aviso',
+  enlace: 'Enlace',
+  tarjeta: 'Tarjeta de datos',
+};
+const BLOQUE_ICONOS = {
+  titulo: 'T', texto: '¶', lista: '•', tabla: '▦', imagen: '▣',
+  archivo: '⎙', aviso: '!', enlace: '↗', tarjeta: '▤',
+};
+
+function bloqueVacio(kind) {
+  switch (kind) {
+    case 'titulo': return { kind, data: { texto: '', nivel: 2 } };
+    case 'texto': return { kind, data: { texto: '' } };
+    case 'lista': return { kind, data: { items: [''], numerada: false } };
+    case 'tabla': return { kind, data: { encabezados: ['', ''], filas: [['', ''], ['', '']] } };
+    case 'imagen': return { kind, data: { attachmentId: '', pie: '', ancho: 'media' } };
+    case 'archivo': return { kind, data: { attachmentId: '', descripcion: '' } };
+    case 'aviso': return { kind, data: { texto: '', tono: 'info' } };
+    case 'enlace': return { kind, data: { titulo: '', url: '', descripcion: '' } };
+    case 'tarjeta': return { kind, data: { titulo: '', imagenAttachmentId: null, campos: [{ etiqueta: '', valor: '', oculto: false }], nota: '' } };
+    default: return { kind: 'texto', data: { texto: '' } };
+  }
+}
+
+/* ---------- Renderizado (solo lectura) ---------- */
+
+const urlAdjunto = (id) => `/api/attachments/${encodeURIComponent(id)}`;
+
+function renderBloque(b) {
+  const d = b.data || {};
+  switch (b.kind) {
+    case 'titulo':
+      return `<h${d.nivel === 1 ? 3 : 4} class="blk-titulo${d.nivel === 1 ? ' blk-titulo-1' : ''}">${esc(d.texto)}</h${d.nivel === 1 ? 3 : 4}>`;
+    case 'texto':
+      // Los saltos de linea se respetan por CSS (white-space), no metiendo <br>.
+      return `<p class="blk-texto">${esc(d.texto)}</p>`;
+    case 'lista': {
+      const tag = d.numerada ? 'ol' : 'ul';
+      return `<${tag} class="blk-lista">${(d.items || []).map((i) => `<li>${esc(i)}</li>`).join('')}</${tag}>`;
+    }
+    case 'tabla': {
+      const enc = (d.encabezados || []).length
+        ? `<thead><tr>${d.encabezados.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>`
+        : '';
+      const filas = (d.filas || []).map((f) => `<tr>${f.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('');
+      return `<div class="blk-tabla-wrap"><table class="blk-tabla">${enc}<tbody>${filas}</tbody></table></div>`;
+    }
+    case 'imagen':
+      if (!d.attachmentId) return '';
+      return `<figure class="blk-imagen blk-imagen-${esc(d.ancho || 'media')}">`
+        + `<img src="${urlAdjunto(d.attachmentId)}" alt="${esc(d.pie || 'Imagen')}" loading="lazy" />`
+        + (d.pie ? `<figcaption>${esc(d.pie)}</figcaption>` : '')
+        + `</figure>`;
+    case 'archivo':
+      if (!d.attachmentId) return '';
+      return `<a class="attach-file blk-archivo" href="${urlAdjunto(d.attachmentId)}" target="_blank" rel="noopener">`
+        + `<span class="attach-file-icon">⎙</span><span class="attach-name">${esc(d.descripcion || 'Descargar archivo')}</span></a>`;
+    case 'aviso':
+      return `<div class="blk-aviso blk-aviso-${esc(d.tono || 'info')}">${esc(d.texto)}</div>`;
+    case 'enlace':
+      // El href se valido en el servidor (solo http/https), pero se vuelve a
+      // comprobar aca: nunca confiar en que el dato ya vino limpio.
+      if (!/^https?:\/\//i.test(d.url || '')) return `<p class="blk-texto">${esc(d.titulo)}</p>`;
+      return `<a class="blk-enlace" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">`
+        + `<span class="blk-enlace-icono">↗</span><span><strong>${esc(d.titulo)}</strong>`
+        + (d.descripcion ? `<span class="muted">${esc(d.descripcion)}</span>` : '') + `</span></a>`;
+    case 'tarjeta': {
+      const logo = d.imagenAttachmentId
+        ? `<div class="blk-tarjeta-logo"><img src="${urlAdjunto(d.imagenAttachmentId)}" alt="" loading="lazy" /></div>`
+        : '';
+      const campos = (d.campos || []).map((c) => {
+        // Los valores marcados como ocultos se muestran tapados y se revelan
+        // con un clic: usuarios y claves compartidas no quedan a la vista de
+        // cualquiera que pase por detras de la pantalla.
+        const valor = c.oculto
+          ? `<button type="button" class="blk-oculto" data-revelar="${esc(c.valor)}">Mostrar</button>`
+          : `<span>${esc(c.valor)}</span>`;
+        return `<div class="blk-campo"><label>${esc(c.etiqueta)}</label>${valor}</div>`;
+      }).join('');
+      return `<div class="blk-tarjeta">${logo}<div class="blk-tarjeta-cuerpo"><h4>${esc(d.titulo)}</h4>${campos}`
+        + (d.nota ? `<p class="blk-tarjeta-nota">${esc(d.nota)}</p>` : '') + `</div></div>`;
+    }
+    default:
+      return '';
+  }
+}
+
+// Las tarjetas seguidas se agrupan en una grilla, como en la captura de
+// referencia: una fila de tarjetas por obra social en vez de una debajo de otra.
+function renderBloques(bloques) {
+  if (!bloques?.length) return '<p class="muted">Sin contenido todavía.</p>';
+  const salida = [];
+  let grupo = [];
+  const cerrarGrupo = () => {
+    if (!grupo.length) return;
+    salida.push(`<div class="blk-grilla">${grupo.join('')}</div>`);
+    grupo = [];
+  };
+  for (const b of bloques) {
+    if (b.kind === 'tarjeta') { grupo.push(renderBloque(b)); continue; }
+    cerrarGrupo();
+    salida.push(renderBloque(b));
+  }
+  cerrarGrupo();
+  return salida.join('');
+}
+
+// Botones "Mostrar" de los campos ocultos.
+function wireBloques(root = document) {
+  root.querySelectorAll('[data-revelar]').forEach((btn) => {
+    btn.onclick = () => {
+      const span = document.createElement('span');
+      span.textContent = btn.dataset.revelar;
+      span.className = 'blk-revelado';
+      btn.replaceWith(span);
+    };
+  });
+}
+
+/* ---------- Editor ---------- */
+// El editor trabaja sobre un arreglo en memoria y se vuelve a dibujar entero
+// en cada cambio. A la escala de un articulo (decenas de bloques) es
+// instantaneo y evita toda una clase de errores de sincronizacion entre lo
+// que se ve y lo que se va a guardar.
+
+function crearEditorBloques(contenedorId, bloquesIniciales) {
+  const estado = { bloques: JSON.parse(JSON.stringify(bloquesIniciales || [])) };
+
+  const campoTexto = (i, campo, valor, placeholder, filas) =>
+    filas
+      ? `<textarea class="blk-in" rows="${filas}" data-i="${i}" data-campo="${campo}" placeholder="${esc(placeholder)}">${esc(valor)}</textarea>`
+      : `<input class="blk-in" data-i="${i}" data-campo="${campo}" value="${esc(valor)}" placeholder="${esc(placeholder)}" />`;
+
+  function editorDe(b, i) {
+    const d = b.data;
+    switch (b.kind) {
+      case 'titulo':
+        return campoTexto(i, 'texto', d.texto, 'Título de la sección')
+          + `<label class="blk-check"><input type="checkbox" data-i="${i}" data-campo="nivel"${d.nivel === 1 ? ' checked' : ''}/> Título grande</label>`;
+      case 'texto':
+        return campoTexto(i, 'texto', d.texto, 'Escribí el texto…', 4);
+      case 'aviso':
+        return campoTexto(i, 'texto', d.texto, 'Texto del aviso…', 3)
+          + `<select class="blk-in" data-i="${i}" data-campo="tono">`
+          + ['info', 'atencion', 'importante'].map((t) => `<option value="${t}"${d.tono === t ? ' selected' : ''}>${t === 'info' ? 'Informativo' : t === 'atencion' ? 'Atención' : 'Importante'}</option>`).join('')
+          + `</select>`;
+      case 'lista':
+        return `<label class="blk-check"><input type="checkbox" data-i="${i}" data-campo="numerada"${d.numerada ? ' checked' : ''}/> Numerada</label>`
+          + d.items.map((it, k) => `<div class="blk-fila-item"><input class="blk-in" data-i="${i}" data-item="${k}" value="${esc(it)}" placeholder="Elemento ${k + 1}" />`
+            + `<button type="button" class="blk-mini" data-quitar-item="${i}:${k}" title="Quitar">×</button></div>`).join('')
+          + `<button type="button" class="btn btn-ghost blk-mini-btn" data-agregar-item="${i}">+ Agregar elemento</button>`;
+      case 'tabla': {
+        const cols = d.filas[0]?.length || 0;
+        const enc = `<div class="blk-tabla-edit-fila">${d.encabezados.map((h, c) => `<input class="blk-in blk-celda blk-celda-enc" data-i="${i}" data-enc="${c}" value="${esc(h)}" placeholder="Columna ${c + 1}" />`).join('')}<span class="blk-mini-espacio"></span></div>`;
+        const filas = d.filas.map((f, r) => `<div class="blk-tabla-edit-fila">${f.map((c, ci) => `<input class="blk-in blk-celda" data-i="${i}" data-fila="${r}" data-col="${ci}" value="${esc(c)}" />`).join('')}`
+          + `<button type="button" class="blk-mini" data-quitar-fila="${i}:${r}" title="Quitar fila">×</button></div>`).join('');
+        return `<p class="blk-ayuda">Podés <strong>pegar una tabla desde Excel</strong> en cualquier celda y se completa sola.</p>`
+          + `<div class="blk-tabla-edit" data-tabla="${i}">${enc}${filas}</div>`
+          + `<div class="blk-acciones-tabla">`
+          + `<button type="button" class="btn btn-ghost blk-mini-btn" data-agregar-fila="${i}">+ Fila</button>`
+          + `<button type="button" class="btn btn-ghost blk-mini-btn" data-agregar-col="${i}">+ Columna</button>`
+          + `<button type="button" class="btn btn-ghost blk-mini-btn" data-quitar-col="${i}"${cols <= 1 ? ' disabled' : ''}>− Columna</button>`
+          + `</div>`;
+      }
+      case 'imagen':
+        return (d.attachmentId
+          ? `<img class="blk-preview" src="${urlAdjunto(d.attachmentId)}" alt="" />`
+          : `<p class="blk-ayuda">Todavía no elegiste una imagen.</p>`)
+          + `<input type="file" class="file-input" accept="image/*" data-subir-imagen="${i}" />`
+          + campoTexto(i, 'pie', d.pie || '', 'Pie de imagen (opcional)')
+          + `<select class="blk-in" data-i="${i}" data-campo="ancho">`
+          + [['chica', 'Chica'], ['media', 'Mediana'], ['completa', 'Ancho completo']].map(([v, t]) => `<option value="${v}"${d.ancho === v ? ' selected' : ''}>${t}</option>`).join('')
+          + `</select>`;
+      case 'archivo':
+        return (d.attachmentId ? `<p class="blk-ayuda">Archivo cargado.</p>` : `<p class="blk-ayuda">Todavía no elegiste un archivo.</p>`)
+          + `<input type="file" class="file-input" data-subir-archivo="${i}" />`
+          + campoTexto(i, 'descripcion', d.descripcion || '', 'Cómo se llama el archivo');
+      case 'enlace':
+        return campoTexto(i, 'titulo', d.titulo, 'Nombre del enlace')
+          + campoTexto(i, 'url', d.url, 'https://…')
+          + campoTexto(i, 'descripcion', d.descripcion || '', 'Descripción (opcional)');
+      case 'tarjeta':
+        return campoTexto(i, 'titulo', d.titulo, 'Nombre (por ejemplo, la obra social)')
+          + (d.imagenAttachmentId ? `<img class="blk-preview blk-preview-logo" src="${urlAdjunto(d.imagenAttachmentId)}" alt="" />` : '')
+          + `<input type="file" class="file-input" accept="image/*" data-subir-logo="${i}" />`
+          + d.campos.map((c, k) => `<div class="blk-fila-item">`
+            + `<input class="blk-in blk-in-corto" data-i="${i}" data-campo-etiqueta="${k}" value="${esc(c.etiqueta)}" placeholder="Dato" />`
+            + `<input class="blk-in" data-i="${i}" data-campo-valor="${k}" value="${esc(c.valor)}" placeholder="Valor" />`
+            + `<label class="blk-check blk-check-inline" title="Se muestra tapado hasta que alguien toque Mostrar"><input type="checkbox" data-i="${i}" data-campo-oculto="${k}"${c.oculto ? ' checked' : ''}/> Ocultar</label>`
+            + `<button type="button" class="blk-mini" data-quitar-campo="${i}:${k}" title="Quitar">×</button></div>`).join('')
+          + `<button type="button" class="btn btn-ghost blk-mini-btn" data-agregar-campo="${i}">+ Agregar dato</button>`
+          + campoTexto(i, 'nota', d.nota || '', 'Nota al pie (opcional)', 2);
+      default:
+        return '';
+    }
+  }
+
+  function pintar() {
+    const cont = document.getElementById(contenedorId);
+    if (!cont) return;
+    const bloques = estado.bloques.map((b, i) => `<div class="blk-edit" data-bloque="${i}">`
+      + `<div class="blk-edit-head"><span class="blk-edit-tipo">${BLOQUE_ICONOS[b.kind] || '•'} ${esc(BLOQUE_ETIQUETAS[b.kind] || b.kind)}</span>`
+      + `<span class="blk-edit-acciones">`
+      + `<button type="button" class="blk-mini" data-subir="${i}"${i === 0 ? ' disabled' : ''} title="Subir">↑</button>`
+      + `<button type="button" class="blk-mini" data-bajar="${i}"${i === estado.bloques.length - 1 ? ' disabled' : ''} title="Bajar">↓</button>`
+      + `<button type="button" class="blk-mini blk-mini-danger" data-eliminar="${i}" title="Eliminar bloque">×</button>`
+      + `</span></div><div class="blk-edit-body">${editorDe(b, i)}</div></div>`).join('');
+    const agregar = `<div class="blk-agregar"><span class="muted">Agregar:</span>`
+      + Object.keys(BLOQUE_ETIQUETAS).map((k) => `<button type="button" class="btn btn-ghost blk-mini-btn" data-nuevo="${k}">${BLOQUE_ICONOS[k]} ${esc(BLOQUE_ETIQUETAS[k])}</button>`).join('')
+      + `</div>`;
+    cont.innerHTML = (bloques || '<p class="muted blk-vacio">Todavía no agregaste contenido. Elegí un bloque abajo para empezar.</p>') + agregar;
+    conectar(cont);
+  }
+
+  function conectar(cont) {
+    const b = (i) => estado.bloques[i];
+
+    cont.querySelectorAll('[data-nuevo]').forEach((el) => el.onclick = () => {
+      estado.bloques.push(bloqueVacio(el.dataset.nuevo));
+      pintar();
+    });
+    cont.querySelectorAll('[data-eliminar]').forEach((el) => el.onclick = () => {
+      estado.bloques.splice(Number(el.dataset.eliminar), 1); pintar();
+    });
+    cont.querySelectorAll('[data-subir]').forEach((el) => el.onclick = () => {
+      const i = Number(el.dataset.subir);
+      [estado.bloques[i - 1], estado.bloques[i]] = [estado.bloques[i], estado.bloques[i - 1]];
+      pintar();
+    });
+    cont.querySelectorAll('[data-bajar]').forEach((el) => el.onclick = () => {
+      const i = Number(el.dataset.bajar);
+      [estado.bloques[i + 1], estado.bloques[i]] = [estado.bloques[i], estado.bloques[i + 1]];
+      pintar();
+    });
+
+    // Campos simples: se escriben en el estado sin volver a pintar, para no
+    // perder el foco mientras se tipea.
+    cont.querySelectorAll('[data-campo]').forEach((el) => el.oninput = () => {
+      const i = Number(el.dataset.i);
+      const campo = el.dataset.campo;
+      if (campo === 'nivel') b(i).data.nivel = el.checked ? 1 : 2;
+      else if (campo === 'numerada') b(i).data.numerada = el.checked;
+      else b(i).data[campo] = el.value;
+    });
+    cont.querySelectorAll('[data-campo]').forEach((el) => { if (el.type === 'checkbox') el.onchange = el.oninput; });
+
+    // Lista
+    cont.querySelectorAll('[data-item]').forEach((el) => el.oninput = () => {
+      b(Number(el.dataset.i)).data.items[Number(el.dataset.item)] = el.value;
+    });
+    cont.querySelectorAll('[data-agregar-item]').forEach((el) => el.onclick = () => {
+      b(Number(el.dataset.agregarItem)).data.items.push(''); pintar();
+    });
+    cont.querySelectorAll('[data-quitar-item]').forEach((el) => el.onclick = () => {
+      const [i, k] = el.dataset.quitarItem.split(':').map(Number);
+      const items = b(i).data.items;
+      if (items.length > 1) items.splice(k, 1);
+      pintar();
+    });
+
+    // Tabla
+    cont.querySelectorAll('[data-enc]').forEach((el) => el.oninput = () => {
+      b(Number(el.dataset.i)).data.encabezados[Number(el.dataset.enc)] = el.value;
+    });
+    cont.querySelectorAll('[data-fila]').forEach((el) => el.oninput = () => {
+      b(Number(el.dataset.i)).data.filas[Number(el.dataset.fila)][Number(el.dataset.col)] = el.value;
+    });
+    cont.querySelectorAll('[data-agregar-fila]').forEach((el) => el.onclick = () => {
+      const d = b(Number(el.dataset.agregarFila)).data;
+      d.filas.push(new Array(d.filas[0]?.length || 1).fill(''));
+      pintar();
+    });
+    cont.querySelectorAll('[data-quitar-fila]').forEach((el) => el.onclick = () => {
+      const [i, r] = el.dataset.quitarFila.split(':').map(Number);
+      const d = b(i).data;
+      if (d.filas.length > 1) d.filas.splice(r, 1);
+      pintar();
+    });
+    cont.querySelectorAll('[data-agregar-col]').forEach((el) => el.onclick = () => {
+      const d = b(Number(el.dataset.agregarCol)).data;
+      d.encabezados.push('');
+      d.filas.forEach((f) => f.push(''));
+      pintar();
+    });
+    cont.querySelectorAll('[data-quitar-col]').forEach((el) => el.onclick = () => {
+      const d = b(Number(el.dataset.quitarCol)).data;
+      if ((d.filas[0]?.length || 0) <= 1) return;
+      d.encabezados.pop();
+      d.filas.forEach((f) => f.pop());
+      pintar();
+    });
+
+    // Pegar desde Excel: se lee la tabla del portapapeles y se reemplaza el
+    // contenido del bloque. Del HTML que pega Excel se toman UNICAMENTE las
+    // filas y las celdas: todo lo demas (estilos, scripts, imagenes) se
+    // descarta, no se guarda y nunca se renderiza.
+    cont.querySelectorAll('[data-tabla] input').forEach((el) => el.onpaste = (ev) => {
+      const html = ev.clipboardData?.getData('text/html');
+      const plano = ev.clipboardData?.getData('text/plain') || '';
+      const grilla = html ? tablaDesdeHtml(html) : tablaDesdeTexto(plano);
+      if (!grilla || grilla.length < 2) return; // pegado normal de una celda
+      ev.preventDefault();
+      const i = Number(el.closest('[data-tabla]').dataset.tabla);
+      const d = b(i).data;
+      d.encabezados = grilla[0];
+      d.filas = grilla.slice(1);
+      pintar();
+      toast(`Tabla pegada: ${d.filas.length} filas y ${d.encabezados.length} columnas.`);
+    });
+
+    // Tarjeta
+    cont.querySelectorAll('[data-campo-etiqueta]').forEach((el) => el.oninput = () => {
+      b(Number(el.dataset.i)).data.campos[Number(el.dataset.campoEtiqueta)].etiqueta = el.value;
+    });
+    cont.querySelectorAll('[data-campo-valor]').forEach((el) => el.oninput = () => {
+      b(Number(el.dataset.i)).data.campos[Number(el.dataset.campoValor)].valor = el.value;
+    });
+    cont.querySelectorAll('[data-campo-oculto]').forEach((el) => el.onchange = () => {
+      b(Number(el.dataset.i)).data.campos[Number(el.dataset.campoOculto)].oculto = el.checked;
+    });
+    cont.querySelectorAll('[data-agregar-campo]').forEach((el) => el.onclick = () => {
+      b(Number(el.dataset.agregarCampo)).data.campos.push({ etiqueta: '', valor: '', oculto: false });
+      pintar();
+    });
+    cont.querySelectorAll('[data-quitar-campo]').forEach((el) => el.onclick = () => {
+      const [i, k] = el.dataset.quitarCampo.split(':').map(Number);
+      b(i).data.campos.splice(k, 1);
+      pintar();
+    });
+
+    // Subidas
+    const subir = async (el, aplicar) => {
+      if (!el.files?.length) return;
+      el.disabled = true;
+      try {
+        const [subido] = await uploadFiles(el.files);
+        if (subido) { aplicar(subido); pintar(); }
+      } catch (err) { toast(err.message || 'No se pudo subir el archivo.'); }
+      finally { el.disabled = false; el.value = ''; }
+    };
+    cont.querySelectorAll('[data-subir-imagen]').forEach((el) => el.onchange = () =>
+      subir(el, (a) => { b(Number(el.dataset.subirImagen)).data.attachmentId = a.id; }));
+    cont.querySelectorAll('[data-subir-archivo]').forEach((el) => el.onchange = () =>
+      subir(el, (a) => { const d = b(Number(el.dataset.subirArchivo)).data; d.attachmentId = a.id; if (!d.descripcion) d.descripcion = a.originalName; }));
+    cont.querySelectorAll('[data-subir-logo]').forEach((el) => el.onchange = () =>
+      subir(el, (a) => { b(Number(el.dataset.subirLogo)).data.imagenAttachmentId = a.id; }));
+  }
+
+  pintar();
+
+  return {
+    // Devuelve los bloques listos para mandar, sacando los que quedaron vacios
+    // (un bloque de texto sin texto, una imagen sin imagen) para no guardar
+    // basura ni chocar con la validacion del servidor.
+    valor() {
+      return estado.bloques
+        .map((b) => {
+          const d = b.data;
+          if (b.kind === 'lista') return { ...b, data: { ...d, items: d.items.map((x) => x.trim()).filter(Boolean) } };
+          if (b.kind === 'tabla') {
+            const filas = d.filas.filter((f) => f.some((c) => String(c).trim()));
+            return { ...b, data: { ...d, filas } };
+          }
+          if (b.kind === 'tarjeta') {
+            return { ...b, data: { ...d, campos: d.campos.filter((c) => c.etiqueta.trim()) } };
+          }
+          return b;
+        })
+        .filter((b) => {
+          const d = b.data;
+          switch (b.kind) {
+            case 'titulo': case 'texto': case 'aviso': return Boolean(String(d.texto || '').trim());
+            case 'lista': return d.items.length > 0;
+            case 'tabla': return d.filas.length > 0;
+            case 'imagen': case 'archivo': return Boolean(d.attachmentId);
+            case 'enlace': return Boolean(d.titulo.trim() && d.url.trim());
+            case 'tarjeta': return Boolean(d.titulo.trim());
+            default: return false;
+          }
+        });
+    },
+    vacio() { return this.valor().length === 0; },
+  };
+}
+
+// De un HTML pegado se extraen SOLO filas y celdas. Se usa DOMParser, que
+// construye un documento inerte: los scripts que venga trayendo el pegado no
+// se ejecutan, y de todos modos solo se lee `textContent` de cada celda.
+function tablaDesdeHtml(html) {
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const tabla = doc.querySelector('table');
+    if (!tabla) return null;
+    const filas = [...tabla.querySelectorAll('tr')]
+      .map((tr) => [...tr.querySelectorAll('th,td')].map((td) => td.textContent.replace(/\s+/g, ' ').trim()))
+      .filter((f) => f.length && f.some((c) => c));
+    if (!filas.length) return null;
+    const cols = Math.max(...filas.map((f) => f.length));
+    return filas.map((f) => [...f, ...new Array(Math.max(0, cols - f.length)).fill('')].slice(0, 12)).slice(0, 200);
+  } catch { return null; }
+}
+
+// Alternativa cuando el portapapeles solo trae texto: columnas separadas por
+// tabulaciones, que es como copia una planilla en texto plano.
+function tablaDesdeTexto(texto) {
+  const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+  if (lineas.length < 2 || !lineas[0].includes('\t')) return null;
+  const filas = lineas.map((l) => l.split('\t').map((c) => c.trim()));
+  const cols = Math.max(...filas.map((f) => f.length));
+  return filas.map((f) => [...f, ...new Array(Math.max(0, cols - f.length)).fill('')].slice(0, 12)).slice(0, 200);
+}
+
+/* ---------- Feed de novedades ---------- */
+// Tablero de la empresa: novedades, avisos y grillas de puestos. Lo escriben
+// Administradores y Supervisores; lo lee todo el personal segun a quien este
+// dirigida cada publicacion.
+
+let feedPosts = [];
+let feedHasMore = false;
+let feedFiltro = '';
+let feedUnseen = 0;
+const feedComentarios = new Map(); // postId -> comentarios ya cargados
+const feedAbiertos = new Set();    // publicaciones con los comentarios a la vista
+
+const puedePublicar = () => isStaff();
+
+async function loadFeed(reset = true) {
+  const params = new URLSearchParams();
+  if (feedFiltro) params.set('q', feedFiltro);
+  if (!reset && feedPosts.length) params.set('before', feedPosts[feedPosts.length - 1].id);
+  const { posts, hasMore } = await api(`/feed${params.toString() ? `?${params}` : ''}`);
+  feedPosts = reset ? posts : [...feedPosts, ...posts];
+  feedHasMore = hasMore;
+}
+
+function feedView() {
+  const acciones = puedePublicar()
+    ? `<button class="btn btn-primary" data-nueva-publicacion>+ Nueva publicación</button>`
+    : '';
+  return page('Novedades', 'Lo que pasa en la empresa: avisos, novedades y horarios.', acciones)
+    + `<div class="list-toolbar"><input class="filter" id="feed-filtro" placeholder="Buscar en las novedades…" value="${esc(feedFiltro)}" /></div>`
+    + `<div id="feed-lista">${feedPosts.map(feedCard).join('') || '<div class="panel"><div class="empty">Todavía no hay publicaciones.' + (puedePublicar() ? ' Tocá «+ Nueva publicación» para escribir la primera.' : '') + '</div></div>'}</div>`
+    + (feedHasMore ? `<div style="text-align:center;margin-top:16px"><button class="btn btn-ghost" id="feed-mas">Ver más</button></div>` : '');
+}
+
+function feedCard(p) {
+  const destinatarios = p.audience === 'todos'
+    ? 'Para todos'
+    : `Para ${p.sectors.map((s) => esc(s.name)).join(', ') || 'nadie'}`;
+  const puedeEditar = isAdmin() || (isStaff() && p.author?.id === currentUser.id);
+  return `<article class="panel feed-card${p.pinned ? ' feed-pinned' : ''}" data-post="${p.id}">`
+    + `<header class="feed-head">`
+    + `<div class="feed-autor"><span class="feed-avatar">${esc((p.author?.name || '?').slice(0, 1))}</span>`
+    + `<div><strong>${esc(p.author?.name || 'Sistema')}</strong>`
+    + `<span class="feed-meta">${esc(destinatarios)} · ${esc(formatDateTime(p.createdAt))}</span></div></div>`
+    + `<div class="feed-head-acciones">`
+    + (p.pinned ? '<span class="feed-pin-tag">Fijada</span>' : '')
+    + (puedeEditar
+      ? `<button class="btn-icon" data-fijar="${p.id}" title="${p.pinned ? 'Dejar de fijar' : 'Fijar arriba'}">${p.pinned ? '★' : '☆'}</button>`
+        + `<button class="btn-icon" data-editar-post="${p.id}" title="Editar">✎</button>`
+        + `<button class="btn-icon" data-borrar-post="${p.id}" title="Eliminar">×</button>`
+      : '')
+    + `</div></header>`
+    + `<h2 class="feed-titulo">${esc(p.title)}</h2>`
+    + `<div class="feed-cuerpo">${renderBloques(p.blocks)}</div>`
+    + `<footer class="feed-pie">`
+    + `<button class="feed-accion${p.reacted ? ' activa' : ''}" data-reaccion="${p.id}">👍 Me gusta${p.reactionCount ? ` · ${p.reactionCount}` : ''}</button>`
+    + `<button class="feed-accion" data-comentarios="${p.id}">💬 Comentar${p.commentCount ? ` · ${p.commentCount}` : ''}</button>`
+    + `<span class="feed-vistas" data-vistas="${p.id}" title="Quiénes la vieron">👁 ${p.viewCount}</span>`
+    + `</footer>`
+    + `<div class="feed-comentarios" id="feed-com-${p.id}">${feedAbiertos.has(p.id) ? feedComentariosHtml(p.id) : ''}</div>`
+    + `</article>`;
+}
+
+function feedComentariosHtml(postId) {
+  const lista = feedComentarios.get(postId) || [];
+  return `<div class="feed-com-lista">${lista.map((c) => `<div class="feed-com" data-comentario="${c.id}">`
+    + `<span class="feed-avatar chico">${esc((c.author?.name || '?').slice(0, 1))}</span>`
+    + `<div class="feed-com-cuerpo"><strong>${esc(c.author?.name || 'Alguien')}</strong>`
+    + `<span class="feed-com-fecha">${esc(formatDateTime(c.createdAt))}</span>`
+    + `<p>${esc(c.body)}</p></div>`
+    + ((c.mine || isAdmin()) ? `<button class="btn-icon" data-borrar-comentario="${postId}:${c.id}" title="Borrar">×</button>` : '')
+    + `</div>`).join('') || '<p class="muted feed-com-vacio">Todavía nadie comentó.</p>'}</div>`
+    + `<form class="feed-com-form" data-com-form="${postId}">`
+    + `<input class="blk-in" name="body" placeholder="Escribí un comentario…" maxlength="1500" autocomplete="off" />`
+    + `<button class="btn btn-primary" type="submit">Enviar</button></form>`;
+}
+
+function wireFeed() {
+  const filtro = document.getElementById('feed-filtro');
+  if (filtro) {
+    filtro.oninput = () => {
+      clearTimeout(window.__feedDebounce);
+      window.__feedDebounce = setTimeout(async () => {
+        feedFiltro = filtro.value.trim();
+        try { await loadFeed(true); render(); } catch (err) { toast(apiErrorMessage(err)); }
+      }, 300);
+    };
+  }
+  const mas = document.getElementById('feed-mas');
+  if (mas) mas.onclick = async () => {
+    try { await loadFeed(false); render(); } catch (err) { toast(apiErrorMessage(err)); }
+  };
+
+  document.querySelectorAll('[data-nueva-publicacion]').forEach((b) => b.onclick = () => openPostEditor(null));
+  document.querySelectorAll('[data-editar-post]').forEach((b) => b.onclick = () => openPostEditor(b.dataset.editarPost));
+
+  document.querySelectorAll('[data-borrar-post]').forEach((b) => b.onclick = async () => {
+    if (!window.confirm('¿Eliminar esta publicación? Se van también sus comentarios.')) return;
+    try {
+      await api(`/feed/${b.dataset.borrarPost}`, { method: 'DELETE' });
+      feedPosts = feedPosts.filter((p) => p.id !== b.dataset.borrarPost);
+      toast('Publicación eliminada.');
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-fijar]').forEach((b) => b.onclick = async () => {
+    const post = feedPosts.find((p) => p.id === b.dataset.fijar);
+    if (!post) return;
+    try {
+      await api(`/feed/${post.id}`, { method: 'PATCH', body: { pinned: !post.pinned } });
+      await loadFeed(true);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-reaccion]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.reaccion;
+    try {
+      const { reacted, count } = await api(`/feed/${id}/reaction`, { method: 'POST' });
+      const post = feedPosts.find((p) => p.id === id);
+      if (post) { post.reacted = reacted; post.reactionCount = count; }
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-comentarios]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.comentarios;
+    if (feedAbiertos.has(id)) { feedAbiertos.delete(id); render(); return; }
+    try {
+      const { comments } = await api(`/feed/${id}/comments`);
+      feedComentarios.set(id, comments);
+      feedAbiertos.add(id);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-com-form]').forEach((form) => form.onsubmit = async (e) => {
+    e.preventDefault();
+    const id = form.dataset.comForm;
+    const input = form.querySelector('input[name=body]');
+    const body = input.value.trim();
+    if (!body) return;
+    input.disabled = true;
+    try {
+      const { comment } = await api(`/feed/${id}/comments`, { method: 'POST', body: { body } });
+      feedComentarios.set(id, [...(feedComentarios.get(id) || []), comment]);
+      const post = feedPosts.find((p) => p.id === id);
+      if (post) post.commentCount += 1;
+      input.value = '';
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+    finally { input.disabled = false; }
+  });
+
+  document.querySelectorAll('[data-borrar-comentario]').forEach((b) => b.onclick = async () => {
+    const [postId, commentId] = b.dataset.borrarComentario.split(':');
+    try {
+      await api(`/feed/${postId}/comments/${commentId}`, { method: 'DELETE' });
+      feedComentarios.set(postId, (feedComentarios.get(postId) || []).filter((c) => c.id !== commentId));
+      const post = feedPosts.find((p) => p.id === postId);
+      if (post) post.commentCount = Math.max(0, post.commentCount - 1);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-vistas]').forEach((el) => el.onclick = async () => {
+    try {
+      const { viewers } = await api(`/feed/${el.dataset.vistas}/viewers`);
+      modalInfo('Quiénes vieron esta publicación',
+        viewers.length
+          ? `<div class="visto-lista">${viewers.map((v) => `<div class="visto-item"><strong>${esc(v.name)}</strong><span class="muted">${esc(formatDateTime(v.viewedAt))}</span></div>`).join('')}</div>`
+          : '<p class="muted">Todavía no la vio nadie.</p>');
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  wireBloques();
+  marcarPublicacionesVistas();
+}
+
+// Marca como vistas las publicaciones que quedaron en pantalla. Se hace una
+// sola vez por publicacion: el servidor no vuelve a contar la misma persona.
+function marcarPublicacionesVistas() {
+  const pendientes = feedPosts.filter((p) => !p.seen);
+  if (!pendientes.length) return;
+  pendientes.forEach((p) => { p.seen = true; });
+  Promise.all(pendientes.map((p) => api(`/feed/${p.id}/view`, { method: 'POST' }).catch(() => {})))
+    .then(() => refreshFeedBadge());
+}
+
+/* ---------- Alta y edicion de publicaciones ---------- */
+
+function openPostEditor(postId) {
+  const post = postId ? feedPosts.find((p) => p.id === postId) : null;
+  const sectoresOrdenados = [...store.sectors].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const elegidos = new Set((post?.sectors || []).map((s) => s.id));
+
+  const campos = textValue('title', 'Título', post?.title || '', 'form-span')
+    + `<div class="field form-span"><label>¿Para quién es?</label>`
+    + `<select name="audience" id="post-audiencia">`
+    + `<option value="todos"${!post || post.audience === 'todos' ? ' selected' : ''}>Toda la empresa</option>`
+    + `<option value="sectores"${post?.audience === 'sectores' ? ' selected' : ''}>Solo algunos sectores</option>`
+    + `</select></div>`
+    + `<div class="field form-span${post?.audience === 'sectores' ? '' : ' hidden'}" id="post-sectores">`
+    + `<label>Sectores que la reciben</label><div class="member-list">`
+    + sectoresOrdenados.map((s) => `<label class="member-item"><input type="checkbox" name="sectorIds" value="${esc(s.id)}"${elegidos.has(s.id) ? ' checked' : ''}/>`
+      + `<span class="member-name">${esc(s.name)}</span></label>`).join('')
+    + `</div></div>`
+    + `<div class="field form-span"><label>Contenido</label><div id="post-bloques" class="blk-editor"></div></div>`;
+
+  modal(post ? 'Editar publicación' : 'Nueva publicación', campos, async (f) => {
+    const bloques = editor.valor();
+    if (!bloques.length) throw new Error('Agregá al menos un bloque de contenido.');
+    const audience = f.get('audience');
+    const sectorIds = f.getAll('sectorIds');
+    if (audience === 'sectores' && !sectorIds.length) throw new Error('Elegí al menos un sector, o publicá para todos.');
+    const body = { title: f.get('title'), audience, sectorIds, blocks: bloques };
+    if (post) await api(`/feed/${post.id}`, { method: 'PATCH', body });
+    else await api('/feed', { method: 'POST', body: { ...body, pinned: false } });
+    await loadFeed(true);
+  });
+
+  const editor = crearEditorBloques('post-bloques', post?.blocks || [{ kind: 'texto', data: { texto: '' } }]);
+  const sel = document.getElementById('post-audiencia');
+  const caja = document.getElementById('post-sectores');
+  if (sel && caja) sel.onchange = () => caja.classList.toggle('hidden', sel.value !== 'sectores');
+}
+
+/* ---------- Badge de novedades sin ver ---------- */
+
+async function refreshFeedBadge() {
+  try {
+    const { count } = await api('/feed/unseen-count');
+    applyFeedBadge(count);
+  } catch { /* si falla, el proximo evento lo corrige */ }
+}
+
+function applyFeedBadge(count) {
+  feedUnseen = count;
+  document.querySelectorAll('.nav-item[data-view="feed"]').forEach((el) => {
+    const existente = el.querySelector('.nav-badge');
+    if (count > 0) {
+      const texto = count > 99 ? '99+' : String(count);
+      if (existente) existente.textContent = texto;
+      else el.insertAdjacentHTML('beforeend', `<span class="nav-badge">${texto}</span>`);
+    } else if (existente) existente.remove();
+  });
+}
+
+/* ---------- Bases de conocimiento ---------- */
+// Cada area arma la suya. Adentro hay secciones y articulos; quien tiene
+// permiso de lectura la consulta y quien tiene permiso de edicion la escribe.
+// Los permisos los da un Administrador desde la propia base.
+
+let kbSpaces = [];
+let kbSpace = null;      // base abierta, con su arbol
+let kbArticle = null;    // articulo abierto
+let kbBusqueda = '';
+let kbResultados = null;
+
+async function loadKbSpaces() {
+  const { spaces } = await api('/knowledge/spaces');
+  kbSpaces = spaces;
+}
+
+async function abrirKbSpace(id) {
+  const { space } = await api(`/knowledge/spaces/${id}`);
+  kbSpace = space;
+  kbArticle = null;
+  // Se abre el primer articulo, para no dejar el panel derecho vacio.
+  const primero = space.sections.flatMap((s) => s.articles)[0];
+  if (primero) await abrirKbArticle(primero.id, false);
+}
+
+async function abrirKbArticle(id, redibujar = true) {
+  const { article } = await api(`/knowledge/articles/${id}`);
+  kbArticle = article;
+  if (redibujar) render();
+}
+
+/* ---------- Listado de bases ---------- */
+
+function kbView() {
+  if (kbSpace) return kbSpaceView();
+  const acciones = isAdmin() ? `<button class="btn btn-primary" data-nueva-base>+ Nueva base</button>` : '';
+  const tarjetas = kbSpaces.map((s) => `<button type="button" class="kb-tarjeta" data-abrir-base="${s.id}">`
+    + `<span class="kb-icono">${esc(s.icon || '📘')}</span>`
+    + `<span class="kb-tarjeta-cuerpo"><strong>${esc(s.name)}</strong>`
+    + `<span class="muted">${esc(s.description || 'Sin descripción')}</span>`
+    + `<span class="kb-tarjeta-meta">${s.sectionCount} ${s.sectionCount === 1 ? 'sección' : 'secciones'}`
+    + `${s.myLevel === 'edicion' ? ' · podés editarla' : ''}</span></span></button>`).join('');
+  return page('Bases de conocimiento', 'Los instructivos, accesos y procedimientos de cada área.', acciones)
+    + `<div class="list-toolbar"><input class="filter" id="kb-buscar" placeholder="Buscar en todas las bases que podés ver…" value="${esc(kbBusqueda)}" /></div>`
+    + (kbResultados
+      ? `<div class="panel"><div class="panel-head"><h2>Resultados (${kbResultados.length})</h2><a data-kb-limpiar>Volver a las bases</a></div>`
+        + (kbResultados.length
+          ? kbResultados.map((r) => `<div class="event linkable" data-resultado="${r.spaceId}:${r.id}"><strong>${esc(r.title)}</strong>`
+            + `<span>${esc(r.spaceName)} · ${esc(r.sectionName)}</span></div>`).join('')
+          : '<div class="empty">No se encontró nada con ese texto.</div>')
+        + `</div>`
+      : `<div class="kb-grilla">${tarjetas || '<div class="panel"><div class="empty">Todavía no hay bases de conocimiento'
+        + (isAdmin() ? '. Tocá «+ Nueva base» para crear la primera.' : ' a las que tengas acceso.') + '</div></div>'}</div>`);
+}
+
+/* ---------- Una base abierta: arbol + articulo ---------- */
+
+function kbSpaceView() {
+  const puedeEditar = kbSpace.myLevel === 'edicion';
+  const arbol = kbSpace.sections.map((s) => `<div class="kb-seccion">`
+    + `<div class="kb-seccion-head"><span>${esc(s.name)}</span>`
+    + (puedeEditar
+      ? `<span class="kb-seccion-acciones">`
+        + `<button class="btn-icon" data-nuevo-articulo="${s.id}" title="Nuevo artículo">+</button>`
+        + `<button class="btn-icon" data-borrar-seccion="${s.id}" title="Eliminar sección">×</button></span>`
+      : '')
+    + `</div>`
+    + `<div class="kb-articulos">${s.articles.map((a) => `<button type="button" class="kb-articulo${kbArticle?.id === a.id ? ' activo' : ''}" data-abrir-articulo="${a.id}">${esc(a.title)}</button>`).join('')
+      || '<p class="muted kb-sin-articulos">Sin artículos</p>'}</div></div>`).join('');
+
+  const acciones = `<button class="btn btn-ghost" data-volver-bases>← Todas las bases</button>`
+    + (puedeEditar ? `<button class="btn btn-ghost" data-nueva-seccion>+ Sección</button>` : '')
+    + (isAdmin() ? `<button class="btn btn-ghost" data-permisos-base>Permisos</button>` : '');
+
+  return page(`${kbSpace.icon || '📘'} ${esc(kbSpace.name)}`, esc(kbSpace.description || 'Base de conocimiento'), acciones)
+    + `<div class="kb-layout">`
+    + `<aside class="panel kb-arbol">${arbol || '<div class="empty">Todavía no hay secciones.' + (puedeEditar ? ' Creá la primera con «+ Sección».' : '') + '</div>'}</aside>`
+    + `<section class="panel kb-contenido">${kbArticleView(puedeEditar)}</section>`
+    + `</div>`;
+}
+
+function kbArticleView(puedeEditar) {
+  if (!kbArticle) {
+    return `<div class="empty">Elegí un artículo de la izquierda`
+      + (puedeEditar ? ', o creá uno nuevo con el «+» de una sección.' : '.') + `</div>`;
+  }
+  return `<div class="kb-articulo-head"><div><h2>${esc(kbArticle.title)}</h2>`
+    + `<p class="muted">${esc(kbArticle.sectionName)}`
+    + (kbArticle.updatedBy ? ` · actualizado por ${esc(kbArticle.updatedBy.name)} el ${esc(formatDateTime(kbArticle.updatedAt))}` : '')
+    + `</p></div>`
+    + (puedeEditar
+      ? `<div class="kb-articulo-acciones">`
+        + `<button class="btn btn-ghost" data-editar-articulo="${kbArticle.id}">Editar</button>`
+        + `<button class="btn btn-ghost" data-borrar-articulo="${kbArticle.id}">Eliminar</button></div>`
+      : '')
+    + `</div><div class="kb-articulo-cuerpo">${renderBloques(kbArticle.blocks)}</div>`;
+}
+
+function wireKb() {
+  const buscar = document.getElementById('kb-buscar');
+  if (buscar) buscar.oninput = () => {
+    clearTimeout(window.__kbDebounce);
+    window.__kbDebounce = setTimeout(async () => {
+      kbBusqueda = buscar.value.trim();
+      if (kbBusqueda.length < 2) { kbResultados = null; render(); return; }
+      try {
+        const { results } = await api(`/knowledge/search?q=${encodeURIComponent(kbBusqueda)}`);
+        kbResultados = results;
+        render();
+      } catch (err) { toast(apiErrorMessage(err)); }
+    }, 350);
+  };
+
+  document.querySelectorAll('[data-kb-limpiar]').forEach((el) => el.onclick = () => {
+    kbBusqueda = ''; kbResultados = null; render();
+  });
+  document.querySelectorAll('[data-resultado]').forEach((el) => el.onclick = async () => {
+    const [spaceId, articleId] = el.dataset.resultado.split(':');
+    try {
+      kbResultados = null; kbBusqueda = '';
+      await abrirKbSpace(spaceId);
+      await abrirKbArticle(articleId, false);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-abrir-base]').forEach((el) => el.onclick = async () => {
+    try { await abrirKbSpace(el.dataset.abrirBase); render(); } catch (err) { toast(apiErrorMessage(err)); }
+  });
+  document.querySelectorAll('[data-volver-bases]').forEach((el) => el.onclick = async () => {
+    kbSpace = null; kbArticle = null;
+    try { await loadKbSpaces(); render(); } catch (err) { toast(apiErrorMessage(err)); }
+  });
+  document.querySelectorAll('[data-abrir-articulo]').forEach((el) => el.onclick = async () => {
+    try { await abrirKbArticle(el.dataset.abrirArticulo); } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-nueva-base]').forEach((el) => el.onclick = () => {
+    modal('Nueva base de conocimiento',
+      field('name', 'Nombre del área o tema', 'text', 'form-span')
+      + `<div class="field"><label>Ícono</label><input name="icon" value="📘" maxlength="4" /></div>`
+      + `<div class="field"><label>Descripción</label><input name="description" placeholder="Para qué sirve" /></div>`,
+      async (f) => {
+        const { space } = await api('/knowledge/spaces', {
+          method: 'POST',
+          body: { name: f.get('name'), icon: f.get('icon') || '📘', description: f.get('description') || '' },
+        });
+        await loadKbSpaces();
+        await abrirKbSpace(space.id);
+      });
+    relaxOptionalFields();
+  });
+
+  document.querySelectorAll('[data-nueva-seccion]').forEach((el) => el.onclick = () => {
+    modal('Nueva sección', field('name', 'Nombre de la sección', 'text', 'form-span'), async (f) => {
+      await api(`/knowledge/spaces/${kbSpace.id}/sections`, { method: 'POST', body: { name: f.get('name') } });
+      await abrirKbSpace(kbSpace.id);
+    });
+  });
+
+  document.querySelectorAll('[data-borrar-seccion]').forEach((el) => el.onclick = async () => {
+    if (!window.confirm('¿Eliminar esta sección?')) return;
+    try {
+      await api(`/knowledge/sections/${el.dataset.borrarSeccion}`, { method: 'DELETE' });
+      toast('Sección eliminada.');
+      await abrirKbSpace(kbSpace.id);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-nuevo-articulo]').forEach((el) => el.onclick = () => openArticleEditor(null, el.dataset.nuevoArticulo));
+  document.querySelectorAll('[data-editar-articulo]').forEach((el) => el.onclick = () => openArticleEditor(kbArticle, kbArticle.sectionId));
+
+  document.querySelectorAll('[data-borrar-articulo]').forEach((el) => el.onclick = async () => {
+    if (!window.confirm(`¿Eliminar el artículo "${kbArticle.title}"?`)) return;
+    try {
+      await api(`/knowledge/articles/${el.dataset.borrarArticulo}`, { method: 'DELETE' });
+      toast('Artículo eliminado.');
+      const id = kbSpace.id;
+      kbArticle = null;
+      await abrirKbSpace(id);
+      render();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-permisos-base]').forEach((el) => el.onclick = () => openKbPermisos());
+
+  wireBloques();
+}
+
+function openArticleEditor(article, sectionId) {
+  const secciones = kbSpace.sections;
+  const campos = textValue('title', 'Título del artículo', article?.title || '', 'form-span')
+    + `<div class="field form-span"><label>Sección</label><select name="sectionId">`
+    + secciones.map((s) => `<option value="${esc(s.id)}"${(article?.sectionId || sectionId) === s.id ? ' selected' : ''}>${esc(s.name)}</option>`).join('')
+    + `</select></div>`
+    + `<div class="field form-span"><label>Contenido</label><div id="kb-bloques" class="blk-editor"></div></div>`;
+
+  modal(article ? 'Editar artículo' : 'Nuevo artículo', campos, async (f) => {
+    const bloques = editor.valor();
+    const body = { title: f.get('title'), sectionId: f.get('sectionId'), blocks: bloques };
+    if (article) await api(`/knowledge/articles/${article.id}`, { method: 'PATCH', body });
+    else {
+      const { article: creado } = await api('/knowledge/articles', { method: 'POST', body });
+      kbArticle = creado;
+    }
+    const id = kbSpace.id;
+    await abrirKbSpace(id);
+    if (article) await abrirKbArticle(article.id, false);
+  });
+
+  const editor = crearEditorBloques('kb-bloques', article?.blocks || []);
+}
+
+async function openKbPermisos() {
+  let permisos;
+  try { ({ permissions: permisos } = await api(`/knowledge/spaces/${kbSpace.id}/permissions`)); }
+  catch (err) { toast(apiErrorMessage(err)); return; }
+
+  const sectoresOrdenados = [...store.sectors].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const usuariosOrdenados = [...store.users].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+
+  const filas = permisos.map((p) => {
+    const quien = p.sector ? `Sector · ${esc(p.sector.name)}` : p.role ? `Rango · ${esc(p.role)}` : `Persona · ${esc(p.user?.name || '?')}`;
+    return `<div class="cat-item"><span>${quien} — <strong>${esc(p.level)}</strong></span>`
+      + `<button type="button" class="cat-remove" data-quitar-permiso="${p.id}" title="Quitar">×</button></div>`;
+  }).join('');
+
+  const contenido = `<div class="field form-span"><label>Quiénes tienen acceso</label>`
+    + `<div class="cat-list" id="kb-permisos-lista">${filas || '<p class="muted">Todavía nadie, además del Administrador y de quien la creó.</p>'}</div></div>`
+    + `<div class="field"><label>Dar acceso a</label><select name="tipo" id="kb-perm-tipo">`
+    + `<option value="sectorId">Un sector</option><option value="role">Un rango</option><option value="userId">Una persona</option></select></div>`
+    + `<div class="field"><label>Nivel</label><select name="level"><option value="lectura">Solo lectura</option><option value="edicion">Lectura y edición</option></select></div>`
+    + `<div class="field form-span" id="kb-perm-destino"></div>`;
+
+  modal(`Permisos de «${kbSpace.name}»`, contenido, async (f) => {
+    const tipo = f.get('tipo');
+    const destino = f.get('destino');
+    if (!destino) throw new Error('Elegí a quién le vas a dar acceso.');
+    await api(`/knowledge/spaces/${kbSpace.id}/permissions`, {
+      method: 'POST',
+      body: { level: f.get('level'), [tipo]: destino },
+    });
+    await abrirKbSpace(kbSpace.id);
+  });
+
+  const tipoSel = document.getElementById('kb-perm-tipo');
+  const destinoCaja = document.getElementById('kb-perm-destino');
+  const pintarDestino = () => {
+    const opciones = tipoSel.value === 'sectorId'
+      ? sectoresOrdenados.map((s) => [s.id, s.name])
+      : tipoSel.value === 'role'
+        ? [['Administrador', 'Administrador'], ['Supervisor', 'Supervisor'], ['User', 'User']]
+        : usuariosOrdenados.map((u) => [u.id, u.name]);
+    destinoCaja.innerHTML = `<label>${tipoSel.value === 'sectorId' ? 'Sector' : tipoSel.value === 'role' ? 'Rango' : 'Persona'}</label>`
+      + `<select name="destino">${opciones.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('')}</select>`;
+  };
+  tipoSel.onchange = pintarDestino;
+  pintarDestino();
+
+  document.querySelectorAll('[data-quitar-permiso]').forEach((b) => b.onclick = async () => {
+    try {
+      await api(`/knowledge/spaces/${kbSpace.id}/permissions/${b.dataset.quitarPermiso}`, { method: 'DELETE' });
+      b.closest('.cat-item').remove();
+      toast('Permiso quitado.');
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+}

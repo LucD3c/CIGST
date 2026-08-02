@@ -10,6 +10,8 @@ import { schedulesRouter } from '../modules/schedules/schedules.routes';
 import { chatRouter } from '../modules/chat/chat.routes';
 import { notificationsRouter } from '../modules/notifications/notifications.routes';
 import { attachmentsRouter } from '../modules/attachments/attachments.routes';
+import { feedRouter } from '../modules/feed/feed.routes';
+import { knowledgeRouter } from '../modules/knowledge/knowledge.routes';
 import { apiRateLimiter } from '../middleware/rateLimit.middleware';
 
 export const apiRouter = Router();
@@ -34,3 +36,5 @@ apiRouter.use('/schedules', schedulesRouter);
 apiRouter.use('/chat', chatRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/attachments', attachmentsRouter);
+apiRouter.use('/feed', feedRouter);
+apiRouter.use('/knowledge', knowledgeRouter);
