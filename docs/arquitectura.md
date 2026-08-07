@@ -169,6 +169,43 @@ de que el usuario fuerce una recarga.
   las tres formas de "sin valor" (`''` del formulario, `null` explícito de
   la API, campo ausente) y las guarda como `null`.
 
+## Decisión: las imágenes se comprimen en el navegador, no en el servidor
+
+Los adjuntos se guardaban tal como llegaban: una foto de celular ocupa entre 3
+y 6 MB en disco, y a cinco fotos por ticket el volumen de uploads crece más de
+1 GB por mes. El objetivo de despliegue es una PC de escritorio común, así que
+eso no escala.
+
+La solución habitual es reencodear del lado del servidor con `sharp`, que es un
+binario nativo: suma peso a la imagen, ata el build a la plataforma y le pone
+el trabajo de CPU justo al equipo que menos tiene para dar.
+
+Acá se hace **en el navegador**, antes de subir (`comprimirImagen` en
+`app.js`): se decodifica con `createImageBitmap`, se reescala a 1600 px de lado
+mayor sobre un `canvas` y se reencodea a WebP con calidad 0.82 (con caída a
+JPEG si el navegador no lo soporta).
+
+- **Cero dependencias nuevas** en el servidor.
+- El trabajo lo hace el equipo de quien sube, que está ocioso; el servidor solo
+  recibe un archivo ya chico.
+- Viaja menos por la red y la subida termina antes.
+- Al reencodear se pierden los metadatos EXIF, que en una foto de celular
+  incluyen la ubicación GPS.
+
+Medido con imágenes reales: una foto de 4032×3024 pasa de **6897 KB a 541 KB**
+(−92 %, 489 ms) y una captura de 1920×1080 de **395 KB a 109 KB** (−72 %).
+Factor de ahorro en disco: **11×**.
+
+Qué NO se toca, a propósito: PDF y planillas (no son imágenes), GIF (podría
+estar animado y el canvas se quedaría con el primer cuadro) e imágenes que ya
+son chicas *y* están dentro del lado máximo — las dos condiciones importan,
+porque una captura de colores planos puede pesar poco y medir 4000 px igual, y
+esos píxeles ocupan memoria del navegador de quien la abre.
+
+Es una **optimización, no un control de seguridad**: alguien podría subir por
+la API sin pasar por el navegador. El límite de 10 MB por archivo sigue
+aplicándose en el servidor, que es donde corresponde.
+
 ## Decisión: contenido por bloques, nunca HTML del usuario
 
 El feed y las bases de conocimiento necesitan texto con formato, tablas,

@@ -449,10 +449,99 @@ function formatBytes(bytes){
 }
 // Sube los archivos elegidos y devuelve los adjuntos ya registrados en el
 // servidor (todavia sin vincular: se vinculan al crear el ticket/mensaje).
+/* ---------- Compresion de imagenes antes de subirlas ---------- */
+// Una foto de un celular moderno pesa entre 3 y 6 MB, y para ver una impresora
+// rota o una pantalla con un error no hace falta ni la decima parte de eso.
+// Sin esto, unas pocas fotos por ticket llenan el disco del servidor en meses.
+//
+// La compresion se hace EN EL NAVEGADOR, no en el servidor. El navegador ya
+// tiene la imagen decodificada para mostrar la vista previa, asi que
+// reescalarla no le cuesta nada; y de este lado sobra CPU, mientras que del
+// lado del servidor -que puede ser una PC de escritorio comun atendiendo a
+// toda la empresa- no. Ademas viaja menos por la red y la subida es mas rapida.
+//
+// Efecto lateral bueno: al reencodear se pierden los metadatos EXIF, que en
+// una foto de celular incluyen la ubicacion GPS de donde se saco.
+
+// Lado mayor al que se reduce la imagen. 1600 px alcanza de sobra para leer un
+// cartel de error en pantalla completa y para imprimir en A4.
+const IMG_MAX_LADO = 1600;
+// Calidad del reencodeado. 0.82 es el punto donde el ojo deja de notar la
+// diferencia y el archivo ya bajo un orden de magnitud.
+const IMG_CALIDAD = 0.82;
+// Debajo de este peso Y dentro del lado maximo no hay nada que ganar.
+const IMG_MIN_BYTES = 200 * 1024;
+// Tipos que se reencodean. El GIF queda afuera a proposito: puede estar
+// animado y el canvas se quedaria solo con el primer cuadro.
+const IMG_COMPRIMIBLES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+// WebP comprime bastante mejor que JPEG y lo entienden todos los navegadores
+// actuales; si alguno no pudiera, se cae a JPEG solo.
+let formatoSalida = null;
+function detectarFormatoSalida(){
+  if(formatoSalida)return formatoSalida;
+  try{
+    const c=document.createElement('canvas');c.width=c.height=1;
+    formatoSalida=c.toDataURL('image/webp').startsWith('data:image/webp')?'image/webp':'image/jpeg';
+  }catch{formatoSalida='image/jpeg';}
+  return formatoSalida;
+}
+
+function cambiarExtension(nombre,mime){
+  const ext=mime==='image/webp'?'.webp':'.jpg';
+  const base=nombre.replace(/\.[^.]+$/,'') || 'imagen';
+  return base+ext;
+}
+
+/**
+ * Devuelve una version mas liviana de la imagen, o el archivo original si no
+ * se puede o si comprimirlo no lo mejora. Nunca falla: ante cualquier
+ * problema devuelve lo que le dieron.
+ */
+async function comprimirImagen(file){
+  if(!IMG_COMPRIMIBLES.has(file.type))return file;
+  try{
+    const bitmap=await createImageBitmap(file);
+    const ladoMayor=Math.max(bitmap.width,bitmap.height);
+    // Se reencodea si pesa mucho O si es mas grande de lo que se va a mostrar.
+    // Las dos condiciones importan: una captura de colores planos puede pesar
+    // poco y medir 4000 px de ancho igual, y esos pixeles ocupan memoria del
+    // navegador de quien la abre aunque el archivo sea chico.
+    if(file.size<IMG_MIN_BYTES&&ladoMayor<=IMG_MAX_LADO){bitmap.close?.();return file;}
+    const escala=Math.min(1,IMG_MAX_LADO/ladoMayor);
+    const ancho=Math.max(1,Math.round(bitmap.width*escala));
+    const alto=Math.max(1,Math.round(bitmap.height*escala));
+    const canvas=document.createElement('canvas');
+    canvas.width=ancho;canvas.height=alto;
+    const ctx=canvas.getContext('2d');
+    // Fondo blanco: un PNG con transparencia pasado a JPEG dejaria el fondo
+    // negro, que es justo lo que arruina una captura de pantalla.
+    const salida=detectarFormatoSalida();
+    if(salida==='image/jpeg'){ctx.fillStyle='#fff';ctx.fillRect(0,0,ancho,alto);}
+    ctx.drawImage(bitmap,0,0,ancho,alto);
+    bitmap.close?.();
+    const blob=await new Promise(r=>canvas.toBlob(r,salida,IMG_CALIDAD));
+    if(!blob||blob.size>=file.size)return file;   // no mejoro: se deja el original
+    return new File([blob],cambiarExtension(file.name,salida),{type:salida});
+  }catch{
+    return file;   // navegador viejo, imagen rara, memoria: se sube tal cual
+  }
+}
+
 async function uploadFiles(fileList){
-  const files=[...fileList];
+  let files=[...fileList];
   if(!files.length)return [];
   if(files.length>ATTACH_MAX_FILES)throw new Error(`Se pueden adjuntar hasta ${ATTACH_MAX_FILES} archivos por vez.`);
+
+  // Se comprime ANTES de mirar el tamano: una foto de 12 MB que despues de
+  // comprimir queda en 400 KB tiene que poder subirse, no ser rechazada.
+  const antes=files.reduce((n,f)=>n+f.size,0);
+  files=await Promise.all(files.map(comprimirImagen));
+  const despues=files.reduce((n,f)=>n+f.size,0);
+  if(antes-despues>512*1024){
+    toast(`Imágenes optimizadas: ${formatBytes(antes)} → ${formatBytes(despues)}`);
+  }
+
   const tooBig=files.find(f=>f.size>ATTACH_MAX_BYTES);
   if(tooBig)throw new Error(`"${tooBig.name}" supera los 10 MB permitidos.`);
   const form=new FormData();

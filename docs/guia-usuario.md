@@ -219,6 +219,12 @@ También podés **adjuntar archivos** (imágenes, PDF o planillas): hasta 5 por
 ticket, de 10 MB cada uno. Es la forma más rápida de mostrar el problema —
 una captura de pantalla vale más que tres párrafos de descripción.
 
+> **Las fotos se achican solas.** Una foto de celular pesa entre 3 y 6 MB, y
+> para ver una impresora rota no hace falta ni la décima parte. Al elegirla, el
+> navegador la reduce antes de mandarla: ocupa unas **10 veces menos** en el
+> servidor, se sube más rápido y se ve igual. Los PDF y las planillas no se
+> tocan. Si la foto era muy pesada vas a ver un aviso diciendo cuánto bajó.
+
 ![Nuevo ticket](img/ticket-nuevo.png)
 
 **Seguir y resolver** (Administrador y Supervisor): el detalle permite
