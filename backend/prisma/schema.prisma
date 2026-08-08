@@ -64,6 +64,9 @@ model User {
   kbSpacesCreated      KbSpace[]      @relation("KbSpaceCreator")
   kbArticlesEdited     KbArticle[]    @relation("KbArticleEditor")
   kbPermissions        KbPermission[] @relation("KbPermissionUser")
+  mailProviders        MailProvider[] @relation("MailProviderCreator")
+  mailAccounts         MailAccount[]  @relation("MailAccountOwner")
+  mailAccess           MailAccountAccess[] @relation("MailAccessUser")
 
   @@index([roleId])
   @@index([employeeId])
@@ -105,6 +108,7 @@ model Sector {
   categories    TicketCategory[]
   posts         PostSector[]
   kbPermissions KbPermission[]
+  mailAccess    MailAccountAccess[]
 
   @@map("sectors")
 }
@@ -611,4 +615,105 @@ model KbPermission {
   @@index([sectorId])
   @@index([userId])
   @@map("kb_permissions")
+}
+
+// ============================================================
+// CORREO (WEBMAIL)
+// ============================================================
+// La plataforma se conecta a las casillas de correo que ya tiene la empresa,
+// por IMAP y SMTP. NO es un servidor de correo: no recibe correo de afuera ni
+// abre ningun puerto. Solo hace conexiones SALIENTES hacia el proveedor, igual
+// que lo haria Outlook o Thunderbird desde la misma PC.
+//
+// La configuracion esta partida en dos a proposito:
+//
+//   MailProvider - los datos de servidor (host, puerto, cifrado). Los carga
+//   UN ADMINISTRADOR una sola vez por proveedor. Es la parte que puede salir
+//   mal o ser peligrosa, y por eso no la toca cualquiera.
+//
+//   MailAccount - una casilla concreta con su usuario y contrasena. La agrega
+//   cada persona para su propio correo; el administrador solo crea las
+//   casillas COMPARTIDAS del sector (recepcion@, turnos@).
+//
+// Asi nadie tiene que pedirle a Infraestructura los puertos cada vez que se
+// suma una persona, y ningun administrador ve la contrasena personal de nadie.
+
+model MailProvider {
+  id         String   @id @default(uuid())
+  // Sin @unique de columna: la unicidad rige SOLO entre los proveedores vivos,
+  // con un indice parcial creado en la migracion (WHERE deleted_at IS NULL).
+  // Con un unique comun, eliminar un proveedor dejaba su nombre ocupado para
+  // siempre y el aviso decia que ya existia uno que el usuario no veia.
+  name       String
+  imapHost   String   @map("imap_host")
+  imapPort   Int      @map("imap_port")
+  imapSecure Boolean  @default(true) @map("imap_secure")
+  smtpHost   String   @map("smtp_host")
+  smtpPort   Int      @map("smtp_port")
+  // "ssl" (conexion cifrada desde el inicio, puerto 465), "starttls" (se
+  // cifra despues del saludo, puerto 587) o "ninguno".
+  smtpSecurity String @default("starttls") @map("smtp_security")
+  // Marcado a mano por un Administrador cuando el servidor de correo esta en
+  // la red interna. Sin esto, apuntar a una direccion privada se rechaza:
+  // evita que la plataforma se use para sondear la red desde adentro.
+  allowInternal Boolean @default(false) @map("allow_internal")
+  status      String   @default("Activo")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  createdBy User?         @relation("MailProviderCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  accounts  MailAccount[]
+
+  @@map("mail_providers")
+}
+
+model MailAccount {
+  id          String  @id @default(uuid())
+  providerId  String  @map("provider_id")
+  // null = casilla compartida del sector; con valor = casilla personal.
+  ownerUserId String? @map("owner_user_id")
+  email       String
+  displayName String? @map("display_name")
+  // Usuario de acceso cuando no coincide con la direccion (algunos
+  // proveedores usan "juan" en vez de "juan@empresa.com").
+  authUser    String? @map("auth_user")
+  // Contrasena cifrada con AES-256-GCM. Nunca sale de aca en claro ni viaja
+  // al cliente en ninguna respuesta.
+  secretCipher String @map("secret_cipher")
+  status      String  @default("Activo")
+  // Resultado de la ultima conexion, para poder avisar "revisá la contraseña"
+  // en vez de dejar la bandeja en blanco sin explicacion.
+  lastCheckedAt DateTime? @map("last_checked_at")
+  lastError     String?   @map("last_error")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  provider MailProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  owner    User?        @relation("MailAccountOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  access   MailAccountAccess[]
+
+  @@index([ownerUserId])
+  @@index([providerId])
+  @@map("mail_accounts")
+}
+
+// Quien puede usar una casilla compartida. Igual que en las bases de
+// conocimiento: por persona o por sector, nunca ambos en la misma fila.
+model MailAccountAccess {
+  id        String  @id @default(uuid())
+  accountId String  @map("account_id")
+  userId    String? @map("user_id")
+  sectorId  String? @map("sector_id")
+
+  account MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user    User?       @relation("MailAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  sector  Sector?     @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([userId])
+  @@index([sectorId])
+  @@map("mail_account_access")
 }

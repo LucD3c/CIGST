@@ -304,3 +304,39 @@ puerto que el resto de la plataforma.
 > además, que las copias de seguridad son volcados de la base en texto plano —
 > con este contenido adentro, ese archivo pasa a ser tan sensible como las
 > claves mismas.
+
+## Correo
+
+Conectarse a las casillas de la empresa es la función que más cambia el perfil
+de riesgo de la plataforma, y por eso es la que más controles tiene.
+
+**Lo primero, porque suele ser la duda:** la plataforma **no abre ningún
+puerto** ni recibe correo de internet. Se conecta *hacia afuera* al proveedor,
+exactamente como lo haría Outlook desde cualquier PC de la oficina. No hay que
+tocar el firewall de entrada ni exponer nada.
+
+| Riesgo | Cómo se cierra | Verificado |
+|---|---|---|
+| Guardar contraseñas de casilla | AES-256-GCM con la clave en el `.env`, **nunca en la base**. Sin esa clave el correo queda desactivado (falla cerrado, sin clave por defecto) | El instalador la genera solo, también al actualizar |
+| Usar la plataforma para sondear la red (SSRF) | Se resuelve el nombre antes de conectar y se rechazan direcciones privadas, loopback y enlace local. Se revalida en cada conexión, no solo al guardar | 7 rangos internos rechazados, incluido `169.254.169.254` |
+| Apuntar a un servicio que no es correo | Los puertos se limitan a los de IMAP/SMTP | 22, 80, 3306, 5432 y 6379 rechazados |
+| Servidor de correo interno legítimo | Se habilita con una casilla explícita que marca un Administrador | Es una decisión consciente, no un accidente |
+| Que cualquiera configure servidores | La configuración de servidor es exclusiva del Administrador | 403 para el resto |
+| Que un Administrador vea el correo ajeno | El acceso a una casilla es de su dueño, o de quien tenga acceso concedido si es compartida. **Un Administrador no lee casillas ajenas**, igual que no lee chats | Verificado en el service |
+| Ejecutar código desde un correo HTML | `iframe sandbox` **sin `allow-scripts`** + CSP propia + limpieza previa. La garantía la da el navegador, no una limpieza que pueda tener un agujero | El navegador registra `Blocked script execution in 'about:srcdoc'` |
+| Píxeles de seguimiento | Las imágenes remotas vienen bloqueadas; se muestran solo si la persona lo pide | Delatan que se abrió el correo, la IP y la hora |
+| Malware en un adjunto de correo | Los adjuntos de correo **siempre** se descargan, nunca se muestran dentro de la página, y van con `nosniff` | — |
+| Usar la casilla de la empresa para spam | Límite propio de envío: 30 por usuario cada 10 minutos | Más acotado que el límite general de la API |
+| Filtrar credenciales en una respuesta o en un registro | Ninguna respuesta devuelve la contraseña ni el cifrado; en los registros la dirección va enmascarada | Verificado con búsqueda en las respuestas |
+
+> **Lo que hay que asumir con los ojos abiertos.** Para conectarse a un IMAP
+> hay que poder descifrar la contraseña, así que estas credenciales son
+> reversibles — a diferencia de todo lo demás en la plataforma. Quien tenga a
+> la vez una copia de la base **y** el archivo `.env` puede recuperarlas. Los
+> dos archivos hay que tratarlos con ese cuidado, y las copias de seguridad
+> también.
+>
+> **En un centro médico, además:** el correo corporativo suele contener datos
+> de pacientes. La plataforma no los guarda —pide al proveedor lo que necesita
+> y lo descarta—, pero conviene decidirlo con quien lleve el tema de protección
+> de datos en la empresa antes de configurarlo.

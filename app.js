@@ -528,6 +528,26 @@ async function comprimirImagen(file){
   }
 }
 
+/**
+ * Imagenes que trae un pegado (Ctrl+V). La herramienta de Recortes de Windows,
+ * la tecla ImprPant y "copiar imagen" del navegador dejan la imagen en el
+ * portapapeles como un archivo sin nombre; aca se le pone uno legible para que
+ * no aparezca como "image.png" en todos lados.
+ */
+function imagenesDelPegado(ev){
+  const items=[...(ev.clipboardData?.items||[])];
+  const imagenes=[];
+  for(const item of items){
+    if(item.kind!=='file'||!item.type.startsWith('image/'))continue;
+    const file=item.getAsFile();
+    if(!file)continue;
+    const ext=(file.type.split('/')[1]||'png').replace('jpeg','jpg');
+    const sello=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    imagenes.push(new File([file],`captura-${sello}.${ext}`,{type:file.type}));
+  }
+  return imagenes;
+}
+
 async function uploadFiles(fileList){
   let files=[...fileList];
   if(!files.length)return [];
@@ -604,7 +624,7 @@ const employee = id => store.employees.find(x => x.id === id);
 const equipment = id => store.equipment.find(x => x.id === id);
 const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
-const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
+const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['mail','✉','Correo'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
 // Equipos y tambien LUGARES: un ticket puede apuntar a una PC o a un
 // consultorio/sala/puerta. Se carga solo lo que recibe pedidos, no un
 // inventario exhaustivo de la empresa.
@@ -616,7 +636,7 @@ const isStaff = () => currentUser?.role !== 'User';
 
 /* ---------- Vistas ---------- */
 function loginView(){app.innerHTML=`<main class="login-page"><section class="login-card"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><h1>Centro de Soporte</h1><p>Ingresá con las credenciales proporcionadas por Sistemas.</p><form id="login-form"><div class="field"><label for="username">Usuario</label><input id="username" name="username" required autocomplete="username" autofocus /></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" required autocomplete="current-password" /></div><div class="login-actions" style="justify-content:flex-end"><button class="btn btn-primary" type="submit">Iniciar sesión</button></div></form></section></main>`;$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const submitBtn=e.currentTarget.querySelector('button[type=submit]');submitBtn.disabled=true;try{const {user}=await api('/auth/login',{method:'POST',body:{username:form.get('username'),password:form.get('password')}});applySessionUser(user);await render();}catch(err){toast(apiErrorMessage(err));}finally{submitBtn.disabled=false;}});}
-function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const inicio=byId(['feed']);const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors','knowledge']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat']);const staffNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${nav(['knowledge','▦','Bases de conocimiento'])}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();feedPosts=[];feedComentarios.clear();feedAbiertos.clear();kbSpaces=[];kbSpace=null;kbArticle=null;chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
+function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const inicio=byId(['feed']);const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors','knowledge']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat','mail']);const staffNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${nav(['knowledge','▦','Bases de conocimiento'])}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();feedPosts=[];feedComentarios.clear();feedAbiertos.clear();kbSpaces=[];kbSpace=null;kbArticle=null;mailEstado=null;mailCuentas=[];mailCuentaActiva=null;mailCarpetas=[];mailMensajes=[];mailAbierto=null;chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
 const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span class="nav-badge">${chatUnreadCount>99?'99+':chatUnreadCount}</span>`:'';return `<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}${badge}</button>`;};
 function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
@@ -1239,7 +1259,7 @@ function renderChatThreadShell(otherName,hasMore,headExtra=''){
     +`<div class="attach-list" id="chat-attach-list"></div>`
     +`<form class="chat-composer" id="chat-composer">`
       +`<label class="attach-btn" title="Adjuntar archivo">📎<input type="file" id="chat-attach-input" multiple accept="${ATTACH_ACCEPT}" hidden /></label>`
-      +`<textarea name="body" maxlength="2000" placeholder="Escribí un mensaje o adjuntá un archivo… (Enter para enviar)"></textarea>`
+      +`<textarea name="body" maxlength="2000" placeholder="Escribí un mensaje, adjuntá un archivo o pegá una captura con Ctrl+V… (Enter para enviar)"></textarea>`
       +`<button class="btn btn-primary" type="submit">Enviar</button>`
     +`</form>`;
 }
@@ -1410,6 +1430,26 @@ function wireChatComposer(target){
   textarea.addEventListener('keydown',e=>{
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}
   });
+  // Ctrl+V con una imagen en el portapapeles: se adjunta sola. Es el flujo de
+  // la herramienta de Recortes de Windows, que deja la captura copiada y no
+  // guardada en ningun archivo. Si lo pegado es texto, sigue de largo.
+  textarea.addEventListener('paste',async e=>{
+    const imagenes=imagenesDelPegado(e);
+    if(!imagenes.length)return;
+    e.preventDefault();
+    if(pending.length>=ATTACH_MAX_FILES){
+      toast(`Se pueden adjuntar hasta ${ATTACH_MAX_FILES} archivos por mensaje.`);
+      return;
+    }
+    const antes=textarea.placeholder;
+    textarea.placeholder='Adjuntando la imagen…';
+    try{
+      const subidas=await uploadFiles(imagenes.slice(0,ATTACH_MAX_FILES-pending.length));
+      subidas.forEach(a=>{ if(pending.length<ATTACH_MAX_FILES)pending.push(a); });
+      paintPending();
+    }catch(err){toast(err.message||'No se pudo adjuntar la imagen.');}
+    finally{textarea.placeholder=antes;}
+  });
 }
 async function refreshChatConversationList(){
   try{
@@ -1576,19 +1616,21 @@ async function render(id){
   if(!isStaff()){
     // El rango User tambien entra a Novedades y a las Bases de conocimiento:
     // no son herramientas de soporte, son informacion de la empresa.
-    const permitidas=['chat','feed','knowledge'];
+    const permitidas=['chat','feed','knowledge','mail'];
     if(!permitidas.includes(currentView))currentView='employee-portal';
     let content;
     try{
       if(currentView==='chat'){content=await chatView();}
       else if(currentView==='feed'){await loadFeed(true);content=feedView();}
       else if(currentView==='knowledge'){if(!kbSpace)await loadKbSpaces();content=kbView();}
+      else if(currentView==='mail'){await loadMailEstado();if(mailEstado.disponible&&!mailCuentas.length)await loadMailCuentas();content=mailView();}
       else{await loadEmployeeData();content=employeePortal();}
     }catch(err){handleApiError(err);return;}
     shell(content);wirePage();
     if(currentView==='chat')wireChatView();
     if(currentView==='feed')wireFeed();
     if(currentView==='knowledge')wireKb();
+    if(currentView==='mail')wireMail();
     return;
   }
   if(currentView==='users'&&!isAdmin())currentView='dashboard';
@@ -1597,6 +1639,13 @@ async function render(id){
     if(!['chat','feed','knowledge'].includes(currentView))await loadStaffData();
     if(currentView==='feed'){await loadStaffData();await loadFeed(true);}
     if(currentView==='knowledge'&&!kbSpace)await loadKbSpaces();
+    if(currentView==='mail'){
+      await loadMailEstado();
+      if(mailEstado.disponible){
+        if(!mailCuentas.length)await loadMailCuentas();
+        if(mailCuentaActiva&&!mailCarpetas.length){await loadMailCarpetas();await loadMailMensajes();}
+      }
+    }
     if(currentView==='users')await loadUsers();
   }catch(err){handleApiError(err);return;}
   let content;
@@ -1610,6 +1659,7 @@ async function render(id){
     case 'chat':content=await chatView();break;
     case 'feed':content=feedView();break;
     case 'knowledge':content=kbView();break;
+    case 'mail':content=mailView();break;
     case 'employee-detail':{
       if(!id){currentView='employees';content=employeesView();break;}
       let detail;
@@ -1638,6 +1688,7 @@ async function render(id){
   if(currentView==='chat')wireChatView();
   if(currentView==='feed')wireFeed();
   if(currentView==='knowledge')wireKb();
+  if(currentView==='mail')wireMail();
   if(currentView==='sector-detail')wireSectorCategories();
 }
 
@@ -1989,6 +2040,23 @@ function crearEditorBloques(contenedorId, bloquesIniciales) {
       b(i).data.campos.splice(k, 1);
       pintar();
     });
+
+    // Pegar una imagen en cualquier parte del editor crea un bloque de imagen
+    // al final. Mismo gesto que en el chat, mismo resultado esperable.
+    cont.onpaste = async (ev) => {
+      const imagenes = imagenesDelPegado(ev);
+      if (!imagenes.length) return;
+      ev.preventDefault();
+      if (estado.bloques.length >= 60) { toast('Ya hay demasiados bloques en este contenido.'); return; }
+      try {
+        const subidas = await uploadFiles(imagenes.slice(0, 5));
+        for (const a of subidas) {
+          estado.bloques.push({ kind: 'imagen', data: { attachmentId: a.id, pie: '', ancho: 'media' } });
+        }
+        pintar();
+        toast(subidas.length === 1 ? 'Imagen agregada al contenido.' : `${subidas.length} imágenes agregadas.`);
+      } catch (err) { toast(err.message || 'No se pudo pegar la imagen.'); }
+    };
 
     // Subidas
     const subir = async (el, aplicar) => {
@@ -2585,6 +2653,458 @@ async function openKbPermisos() {
       await api(`/knowledge/spaces/${kbSpace.id}/permissions/${b.dataset.quitarPermiso}`, { method: 'DELETE' });
       b.closest('.cat-item').remove();
       toast('Permiso quitado.');
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+}
+
+/* ---------- Correo ---------- */
+// La plataforma se conecta a las casillas que ya tiene la empresa. NO es un
+// servidor de correo: solo hace conexiones salientes al proveedor, igual que
+// Outlook. El contenido de los correos no se guarda en la base: se pide al
+// proveedor lo que hace falta para la pantalla y se descarta.
+
+let mailEstado = null;      // { disponible, presets }
+let mailCuentas = [];
+let mailCuentaActiva = null;
+let mailCarpetas = [];
+let mailCarpetaActiva = 'INBOX';
+let mailMensajes = [];
+let mailTotal = 0;
+let mailPagina = 1;
+let mailPorPagina = 25;
+let mailBusqueda = '';
+let mailAbierto = null;     // mensaje que se esta leyendo
+let mailCargando = false;
+
+async function loadMailEstado() {
+  if (!mailEstado) mailEstado = await api('/mail/status');
+  return mailEstado;
+}
+
+async function loadMailCuentas() {
+  const { accounts } = await api('/mail/accounts');
+  mailCuentas = accounts;
+  if (mailCuentaActiva && !accounts.some((c) => c.id === mailCuentaActiva)) mailCuentaActiva = null;
+  if (!mailCuentaActiva && accounts.length) mailCuentaActiva = accounts[0].id;
+}
+
+async function loadMailCarpetas() {
+  if (!mailCuentaActiva) { mailCarpetas = []; return; }
+  const { folders } = await api(`/mail/accounts/${mailCuentaActiva}/folders`);
+  mailCarpetas = folders;
+  if (!folders.some((f) => f.path === mailCarpetaActiva)) {
+    mailCarpetaActiva = folders.find((f) => f.especial === 'entrada')?.path || folders[0]?.path || 'INBOX';
+  }
+}
+
+async function loadMailMensajes() {
+  if (!mailCuentaActiva) { mailMensajes = []; mailTotal = 0; return; }
+  const p = new URLSearchParams({ folder: mailCarpetaActiva, page: String(mailPagina) });
+  if (mailBusqueda) p.set('q', mailBusqueda);
+  const r = await api(`/mail/accounts/${mailCuentaActiva}/messages?${p}`);
+  mailMensajes = r.mensajes;
+  mailTotal = r.total;
+  mailPorPagina = r.porPagina;
+}
+
+/* ---------- Vista ---------- */
+
+function mailView() {
+  if (!mailEstado?.disponible) {
+    return page('Correo', 'Las casillas de la empresa, dentro de la plataforma.')
+      + `<div class="panel"><div class="empty">`
+      + `<p><strong>El correo todavía no está habilitado en este servidor.</strong></p>`
+      + `<p class="muted">Falta la clave de cifrado con la que se guardan las contraseñas de las casillas. `
+      + `El instalador la genera sola: ejecutá <span class="mono">./install.sh</span> (o <span class="mono">install.bat</span> en Windows) `
+      + `y elegí la opción 1. El resto de la plataforma funciona igual.</p>`
+      + `</div></div>`;
+  }
+
+  const acciones = `<button class="btn btn-ghost" data-mail-cuentas>Mis casillas</button>`
+    + (isAdmin() ? `<button class="btn btn-ghost" data-mail-servidores>Servidores</button>` : '')
+    + (mailCuentas.length ? `<button class="btn btn-primary" data-mail-redactar>+ Escribir</button>` : '');
+
+  if (!mailCuentas.length) {
+    return page('Correo', 'Las casillas de la empresa, dentro de la plataforma.', acciones)
+      + `<div class="panel"><div class="empty">`
+      + `<p><strong>Todavía no agregaste ninguna casilla.</strong></p>`
+      + `<p class="muted">Tocá «Mis casillas» y agregá tu correo. Si no aparece tu proveedor en la lista, `
+      + `pedile a un Administrador que lo configure una vez desde «Servidores».</p>`
+      + `</div></div>`;
+  }
+
+  const cuenta = mailCuentas.find((c) => c.id === mailCuentaActiva);
+  const selector = mailCuentas.length > 1
+    ? `<select class="list-select" id="mail-cuenta">${mailCuentas.map((c) =>
+      `<option value="${esc(c.id)}"${c.id === mailCuentaActiva ? ' selected' : ''}>${esc(c.displayName)}${c.compartida ? ' · compartida' : ''}</option>`).join('')}</select>`
+    : `<span class="mail-cuenta-unica">${esc(cuenta?.displayName || '')}</span>`;
+
+  const aviso = cuenta?.lastError
+    ? `<div class="blk-aviso blk-aviso-importante" style="margin:0 0 14px">${esc(cuenta.lastError)}</div>`
+    : '';
+
+  return page('Correo', 'Las casillas de la empresa, dentro de la plataforma.', acciones)
+    + `<div class="list-toolbar">${selector}`
+    + `<input class="filter" id="mail-buscar" placeholder="Buscar en esta carpeta…" value="${esc(mailBusqueda)}" />`
+    + `<span class="list-count">${mailTotal} ${mailTotal === 1 ? 'correo' : 'correos'}</span></div>`
+    + aviso
+    + `<div class="mail-layout">`
+    + `<aside class="panel mail-carpetas">${mailCarpetas.map((f) => `<button type="button" class="mail-carpeta${f.path === mailCarpetaActiva ? ' activa' : ''}" data-mail-carpeta="${esc(f.path)}">`
+      + `<span>${esc(mailNombreCarpeta(f))}</span>`
+      + (f.sinLeer ? `<span class="mail-badge">${f.sinLeer}</span>` : '') + `</button>`).join('')
+      || '<div class="empty">Sin carpetas</div>'}</aside>`
+    + `<section class="panel mail-lista">${mailListaHtml()}</section>`
+    + `</div>`;
+}
+
+const NOMBRES_CARPETA = {
+  entrada: 'Recibidos', enviados: 'Enviados', borradores: 'Borradores',
+  papelera: 'Papelera', spam: 'Correo no deseado', archivo: 'Archivo',
+};
+const mailNombreCarpeta = (f) => NOMBRES_CARPETA[f.especial] || f.nombre;
+
+function mailListaHtml() {
+  if (mailCargando) return '<div class="empty">Cargando…</div>';
+  if (mailAbierto) return mailMensajeHtml(mailAbierto);
+  if (!mailMensajes.length) {
+    return `<div class="empty">${mailBusqueda ? 'No se encontró nada con ese texto.' : 'No hay correos en esta carpeta.'}</div>`;
+  }
+  const filas = mailMensajes.map((m) => `<button type="button" class="mail-fila${m.leido ? '' : ' sin-leer'}" data-mail-abrir="${m.uid}">`
+    + `<span class="mail-de">${esc(m.deNombre || m.de)}</span>`
+    + `<span class="mail-asunto">${esc(m.asunto)}${m.tieneAdjuntos ? ' <span class="mail-clip">⎙</span>' : ''}</span>`
+    + `<span class="mail-fecha">${esc(mailFecha(m.fecha))}</span></button>`).join('');
+  const paginas = Math.max(1, Math.ceil(mailTotal / mailPorPagina));
+  const paginacion = paginas > 1
+    ? `<div class="mail-paginacion">`
+      + `<button class="btn btn-ghost" data-mail-pagina="${mailPagina - 1}"${mailPagina <= 1 ? ' disabled' : ''}>← Anteriores</button>`
+      + `<span class="muted">Página ${mailPagina} de ${paginas}</span>`
+      + `<button class="btn btn-ghost" data-mail-pagina="${mailPagina + 1}"${mailPagina >= paginas ? ' disabled' : ''}>Siguientes →</button>`
+      + `</div>`
+    : '';
+  return `<div class="mail-filas">${filas}</div>${paginacion}`;
+}
+
+function mailFecha(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const hoy = new Date();
+  const mismoDia = d.toDateString() === hoy.toDateString();
+  return mismoDia
+    ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function mailMensajeHtml(m) {
+  const adjuntos = m.adjuntos.length
+    ? `<div class="mail-adjuntos">${m.adjuntos.map((a) => `<a class="attach-file" href="/api/mail/accounts/${esc(mailCuentaActiva)}/messages/${m.uid}/attachments/${a.indice}?folder=${encodeURIComponent(m.folder)}" target="_blank" rel="noopener">`
+      + `<span class="attach-file-icon">⎙</span><span class="attach-name">${esc(a.nombre)}</span>`
+      + `<span class="attach-size">${formatBytes(a.tamano)}</span></a>`).join('')}</div>`
+    : '';
+
+  const avisoImagenes = m.imagenesBloqueadas
+    ? `<div class="mail-imagenes-bloqueadas">Se bloquearon ${m.imagenesBloqueadas} ${m.imagenesBloqueadas === 1 ? 'imagen remota' : 'imágenes remotas'}: `
+      + `avisan a quien envió el correo que lo abriste. <button type="button" class="btn btn-ghost blk-mini-btn" data-mail-imagenes="${m.uid}">Mostrar igual</button></div>`
+    : '';
+
+  // El cuerpo HTML va dentro de un iframe con sandbox y SIN allow-scripts: es
+  // el navegador el que garantiza que ahi adentro no corre nada. Un correo lo
+  // escribio cualquiera, desde afuera.
+  const cuerpo = m.html
+    ? `<iframe class="mail-cuerpo-html" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" srcdoc="${esc(mailDocumentoHtml(m.html))}"></iframe>`
+    : `<pre class="mail-cuerpo-texto">${esc(m.texto || '(sin contenido)')}</pre>`;
+
+  return `<div class="mail-mensaje">`
+    + `<div class="mail-mensaje-head">`
+    + `<button class="btn btn-ghost" data-mail-volver>← Volver</button>`
+    + `<div class="mail-mensaje-acciones">`
+    + `<button class="btn btn-ghost" data-mail-responder="${m.uid}">Responder</button>`
+    + `<button class="btn btn-ghost" data-mail-borrar="${m.uid}">Eliminar</button>`
+    + `</div></div>`
+    + `<h2 class="mail-asunto-grande">${esc(m.asunto)}</h2>`
+    + `<div class="mail-cabecera">`
+    + `<div><strong>${esc(m.de.nombre || m.de.texto)}</strong> <span class="muted">${esc(m.de.texto)}</span></div>`
+    + `<div class="muted">Para: ${esc(m.para)}${m.cc ? ` · CC: ${esc(m.cc)}` : ''}</div>`
+    + `<div class="muted">${esc(m.fecha ? formatDateTime(m.fecha) : '')}</div>`
+    + `</div>`
+    + avisoImagenes
+    + cuerpo
+    + adjuntos
+    + `</div>`;
+}
+
+// Documento completo para el iframe, con su propia CSP restrictiva. Doble
+// candado: el sandbox ya impide ejecutar, y la CSP impide traer nada de afuera.
+function mailDocumentoHtml(html) {
+  return `<!doctype html><html><head><meta charset="utf-8">`
+    + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src http: https: data:; style-src 'unsafe-inline'; font-src data:;">`
+    + `<style>body{font:14px system-ui,sans-serif;color:#1a1a1a;background:#fff;margin:12px;word-break:break-word}`
+    + `img{max-width:100%;height:auto}table{max-width:100%}a{color:#1a5fa8}</style></head>`
+    + `<body>${html}</body></html>`;
+}
+
+/* ---------- Interacción ---------- */
+
+function wireMail() {
+  const sel = document.getElementById('mail-cuenta');
+  if (sel) sel.onchange = async () => {
+    mailCuentaActiva = sel.value;
+    mailCarpetaActiva = 'INBOX'; mailPagina = 1; mailAbierto = null; mailBusqueda = '';
+    await mailRecargar();
+  };
+
+  const buscar = document.getElementById('mail-buscar');
+  if (buscar) buscar.oninput = () => {
+    clearTimeout(window.__mailDebounce);
+    window.__mailDebounce = setTimeout(async () => {
+      mailBusqueda = buscar.value.trim();
+      mailPagina = 1; mailAbierto = null;
+      await mailRecargar({ soloMensajes: true });
+    }, 450);
+  };
+
+  document.querySelectorAll('[data-mail-carpeta]').forEach((b) => b.onclick = async () => {
+    mailCarpetaActiva = b.dataset.mailCarpeta;
+    mailPagina = 1; mailAbierto = null; mailBusqueda = '';
+    await mailRecargar({ soloMensajes: true });
+  });
+
+  document.querySelectorAll('[data-mail-pagina]').forEach((b) => b.onclick = async () => {
+    mailPagina = Number(b.dataset.mailPagina);
+    await mailRecargar({ soloMensajes: true });
+  });
+
+  document.querySelectorAll('[data-mail-abrir]').forEach((b) => b.onclick = () => mailAbrirMensaje(Number(b.dataset.mailAbrir)));
+  document.querySelectorAll('[data-mail-volver]').forEach((b) => b.onclick = async () => {
+    mailAbierto = null;
+    await mailRecargar({ soloMensajes: true });
+  });
+  document.querySelectorAll('[data-mail-imagenes]').forEach((b) => b.onclick = () => mailAbrirMensaje(Number(b.dataset.mailImagenes), true));
+
+  document.querySelectorAll('[data-mail-borrar]').forEach((b) => b.onclick = async () => {
+    if (!window.confirm('¿Eliminar este correo? Se mueve a la papelera de la casilla.')) return;
+    try {
+      await api(`/mail/accounts/${mailCuentaActiva}/messages/${b.dataset.mailBorrar}?folder=${encodeURIComponent(mailCarpetaActiva)}`, { method: 'DELETE' });
+      toast('Correo eliminado.');
+      mailAbierto = null;
+      await mailRecargar();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+
+  document.querySelectorAll('[data-mail-responder]').forEach((b) => b.onclick = () => mailRedactar(mailAbierto));
+  document.querySelectorAll('[data-mail-redactar]').forEach((b) => b.onclick = () => mailRedactar(null));
+  document.querySelectorAll('[data-mail-cuentas]').forEach((b) => b.onclick = () => mailPanelCuentas());
+  document.querySelectorAll('[data-mail-servidores]').forEach((b) => b.onclick = () => mailPanelServidores());
+}
+
+async function mailRecargar(opciones = {}) {
+  mailCargando = true;
+  render();
+  try {
+    if (!opciones.soloMensajes) { await loadMailCuentas(); await loadMailCarpetas(); }
+    await loadMailMensajes();
+  } catch (err) {
+    mailCargando = false;
+    toast(apiErrorMessage(err));
+    render();
+    return;
+  }
+  mailCargando = false;
+  render();
+}
+
+async function mailAbrirMensaje(uid, conImagenes = false) {
+  mailCargando = true; render();
+  try {
+    const p = new URLSearchParams({ folder: mailCarpetaActiva });
+    if (conImagenes) p.set('imagenes', '1');
+    const { message } = await api(`/mail/accounts/${mailCuentaActiva}/messages/${uid}?${p}`);
+    mailAbierto = message;
+    // Al abrirlo queda leido en el servidor: se refleja en la lista.
+    const enLista = mailMensajes.find((m) => m.uid === uid);
+    if (enLista) enLista.leido = true;
+  } catch (err) { toast(apiErrorMessage(err)); }
+  mailCargando = false;
+  render();
+}
+
+/* ---------- Redactar ---------- */
+
+function mailRedactar(responderA) {
+  const esRespuesta = Boolean(responderA);
+  const asunto = esRespuesta
+    ? (responderA.asunto.startsWith('Re:') ? responderA.asunto : `Re: ${responderA.asunto}`)
+    : '';
+  const cita = esRespuesta
+    ? `\n\n\n--- El ${formatDateTime(responderA.fecha)}, ${responderA.de.nombre || responderA.de.texto} escribió: ---\n`
+      + (responderA.texto || '').split('\n').map((l) => `> ${l}`).join('\n')
+    : '';
+
+  const campos = textValue('to', 'Para', esRespuesta ? responderA.de.texto : '', 'form-span')
+    + `<div class="field"><label>CC</label><input name="cc" placeholder="Opcional" /></div>`
+    + `<div class="field"><label>CCO</label><input name="bcc" placeholder="Opcional" /></div>`
+    + textValue('subject', 'Asunto', asunto, 'form-span')
+    + `<div class="field form-span"><label>Mensaje</label><textarea name="body" rows="12" style="min-height:220px">${esc(cita)}</textarea></div>`
+    + attachmentField('mail-attach', 'Adjuntar archivos');
+
+  modal(esRespuesta ? 'Responder' : 'Escribir correo', campos, async (f) => {
+    const to = f.get('to').trim();
+    if (!to) throw new Error('Falta el destinatario.');
+    await api(`/mail/accounts/${mailCuentaActiva}/send`, {
+      method: 'POST',
+      body: {
+        to, cc: f.get('cc') || '', bcc: f.get('bcc') || '',
+        subject: f.get('subject') || '', body: f.get('body') || '',
+        attachmentIds: adjuntos.ids(),
+        inReplyTo: esRespuesta ? responderA.messageId || undefined : undefined,
+        references: esRespuesta ? responderA.references || responderA.messageId || undefined : undefined,
+      },
+    });
+    toast('Correo enviado.');
+  });
+  const adjuntos = wireAttachmentField('mail-attach');
+  relaxOptionalFields();
+}
+
+/* ---------- Mis casillas ---------- */
+
+async function mailPanelCuentas() {
+  let proveedores;
+  try { ({ providers: proveedores } = await api('/mail/providers/available')); }
+  catch (err) { toast(apiErrorMessage(err)); return; }
+
+  const filas = mailCuentas.map((c) => `<div class="cat-item"><span>${esc(c.displayName)} `
+    + `<span class="muted">${esc(c.provider.name)}${c.compartida ? ' · compartida' : ''}</span></span>`
+    + (c.compartida && !isAdmin() ? '' : `<button type="button" class="cat-remove" data-quitar-casilla="${esc(c.id)}" title="Quitar">×</button>`)
+    + `</div>`).join('');
+
+  if (!proveedores.length) {
+    modalInfo('Mis casillas',
+      `<p class="muted">Todavía no hay ningún proveedor de correo configurado en la plataforma.</p>`
+      + (isAdmin()
+        ? `<p class="muted">Como Administrador, podés configurarlo desde el botón «Servidores».</p>`
+        : `<p class="muted">Pedile a un Administrador que configure el proveedor una sola vez, y después vas a poder agregar tu casilla.</p>`));
+    return;
+  }
+
+  const contenido = `<div class="field form-span"><label>Casillas que estás usando</label>`
+    + `<div class="cat-list">${filas || '<p class="muted">Todavía no agregaste ninguna.</p>'}</div></div>`
+    + `<div class="field form-span"><label>Agregar una casilla</label></div>`
+    + `<div class="field"><label>Proveedor</label><select name="providerId">`
+    + proveedores.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')
+    + `</select></div>`
+    + `<div class="field"><label>Dirección de correo</label><input name="email" placeholder="vos@empresa.com" /></div>`
+    + `<div class="field"><label>Nombre para mostrar</label><input name="displayName" placeholder="Opcional" /></div>`
+    + `<div class="field"><label>Usuario de acceso</label><input name="authUser" placeholder="Solo si no es la dirección completa" /></div>`
+    + `<div class="field form-span"><label>Contraseña de la casilla</label>`
+    + `<input name="password" type="password" autocomplete="new-password" /></div>`
+    + (isAdmin()
+      ? `<label class="blk-check form-span"><input type="checkbox" name="shared" /> Es una casilla compartida del sector (recepción, turnos…)</label>`
+      : '')
+    + `<p class="blk-ayuda form-span">Se prueba la conexión antes de guardar: si la contraseña está mal, te avisa en el momento.</p>`;
+
+  modal('Mis casillas', contenido, async (f) => {
+    const email = f.get('email').trim();
+    if (!email) throw new Error('Escribí la dirección de correo.');
+    if (!f.get('password')) throw new Error('Falta la contraseña de la casilla.');
+    await api('/mail/accounts', {
+      method: 'POST',
+      body: {
+        providerId: f.get('providerId'),
+        email,
+        displayName: f.get('displayName') || '',
+        authUser: f.get('authUser') || '',
+        password: f.get('password'),
+        shared: f.get('shared') === 'on',
+      },
+    });
+    await mailRecargar();
+  });
+  relaxOptionalFields();
+
+  document.querySelectorAll('[data-quitar-casilla]').forEach((b) => b.onclick = async () => {
+    if (!window.confirm('¿Quitar esta casilla de la plataforma? No se borra ningún correo del servidor.')) return;
+    try {
+      await api(`/mail/accounts/${b.dataset.quitarCasilla}`, { method: 'DELETE' });
+      b.closest('.cat-item').remove();
+      toast('Casilla quitada.');
+      mailCuentaActiva = null;
+      await loadMailCuentas();
+    } catch (err) { toast(apiErrorMessage(err)); }
+  });
+}
+
+/* ---------- Servidores (solo Administrador) ---------- */
+
+async function mailPanelServidores() {
+  let proveedores;
+  try { ({ providers: proveedores } = await api('/mail/providers')); }
+  catch (err) { toast(apiErrorMessage(err)); return; }
+
+  const presets = mailEstado?.presets || [];
+  const filas = proveedores.map((p) => `<div class="cat-item"><span>${esc(p.name)} `
+    + `<span class="muted mono">${esc(p.imapHost)}:${p.imapPort} · ${esc(p.smtpHost)}:${p.smtpPort}</span>`
+    + (p.accountCount ? ` <span class="muted">· ${p.accountCount} ${p.accountCount === 1 ? 'casilla' : 'casillas'}</span>` : '')
+    + `</span><button type="button" class="cat-remove" data-quitar-proveedor="${esc(p.id)}" title="Eliminar">×</button></div>`).join('');
+
+  const contenido = `<div class="field form-span"><label>Proveedores configurados</label>`
+    + `<div class="cat-list">${filas || '<p class="muted">Todavía no hay ninguno.</p>'}</div></div>`
+    + `<div class="field form-span"><label>Agregar un proveedor</label>`
+    + `<select name="preset" id="mail-preset">${presets.map((p) => `<option value="${esc(p.clave)}">${esc(p.nombre)}</option>`).join('')}</select></div>`
+    + `<div class="field form-span" id="mail-preset-aviso"></div>`
+    + `<div class="field form-span"><label>Nombre para reconocerlo</label><input name="name" placeholder="Correo de la empresa" /></div>`
+    + `<div class="field"><label>Servidor de entrada (IMAP)</label><input name="imapHost" /></div>`
+    + `<div class="field"><label>Puerto IMAP</label><input name="imapPort" value="993" /></div>`
+    + `<div class="field"><label>Servidor de salida (SMTP)</label><input name="smtpHost" /></div>`
+    + `<div class="field"><label>Puerto SMTP</label><input name="smtpPort" value="465" /></div>`
+    + `<div class="field form-span"><label>Cifrado de salida</label><select name="smtpSecurity">`
+    + `<option value="ssl">SSL/TLS (puerto 465)</option><option value="starttls">STARTTLS (puerto 587)</option>`
+    + `<option value="ninguno">Sin cifrado (no recomendado)</option></select></div>`
+    + `<label class="blk-check form-span"><input type="checkbox" name="allowInternal" /> El servidor está en la red interna de la empresa</label>`
+    + `<p class="blk-ayuda form-span">Marcá esa casilla solo si el correo de la empresa corre en un servidor propio de la red. `
+    + `Sin marcarla, la plataforma no se conecta a direcciones internas — es lo que evita que se la use para sondear la red.</p>`;
+
+  modal('Servidores de correo', contenido, async (f) => {
+    await api('/mail/providers', {
+      method: 'POST',
+      body: {
+        name: f.get('name'),
+        imapHost: f.get('imapHost'), imapPort: Number(f.get('imapPort')), imapSecure: true,
+        smtpHost: f.get('smtpHost'), smtpPort: Number(f.get('smtpPort')),
+        smtpSecurity: f.get('smtpSecurity'),
+        allowInternal: f.get('allowInternal') === 'on',
+      },
+    });
+    toast('Proveedor configurado.');
+  });
+  relaxOptionalFields();
+
+  // Al elegir un preset se completan los campos y se muestra su advertencia.
+  const sel = document.getElementById('mail-preset');
+  const caja = document.getElementById('mail-preset-aviso');
+  const form = document.getElementById('entry-form');
+  const aplicar = () => {
+    const p = presets.find((x) => x.clave === sel.value);
+    if (!p) return;
+    // El nombre sigue al proveedor elegido, salvo que la persona haya escrito
+    // uno propio: si el actual es el de algun preset, todavia no lo tocó.
+    const actual = form.elements.name.value.trim();
+    if (!actual || presets.some((x) => x.nombre === actual)) form.elements.name.value = p.nombre;
+    form.elements.imapHost.value = p.imapHost;
+    form.elements.imapPort.value = String(p.imapPort);
+    form.elements.smtpHost.value = p.smtpHost;
+    form.elements.smtpPort.value = String(p.smtpPort);
+    form.elements.smtpSecurity.value = p.smtpSecurity;
+    caja.innerHTML = p.aviso ? `<div class="blk-aviso blk-aviso-atencion">${esc(p.aviso)}</div>` : '';
+  };
+  sel.onchange = aplicar;
+  aplicar();
+
+  document.querySelectorAll('[data-quitar-proveedor]').forEach((b) => b.onclick = async () => {
+    if (!window.confirm('¿Eliminar este proveedor?')) return;
+    try {
+      await api(`/mail/providers/${b.dataset.quitarProveedor}`, { method: 'DELETE' });
+      b.closest('.cat-item').remove();
+      toast('Proveedor eliminado.');
     } catch (err) { toast(apiErrorMessage(err)); }
   });
 }

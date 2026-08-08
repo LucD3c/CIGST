@@ -127,6 +127,52 @@ Todo esto es **en tiempo real**: una publicación nueva, un comentario o un
 
 ---
 
+## Correo
+
+![Configuración del correo](img/correo-servidores.png)
+
+Las casillas que ya usa la empresa, **dentro de la plataforma**. La idea es
+simple: si en recepción se usan dos correos —el propio y el del sector— no
+haga falta tener dos pestañas abiertas.
+
+### Agregar tu casilla
+
+**Correo → Mis casillas** → elegís el proveedor, ponés tu dirección y tu
+contraseña. La plataforma **prueba la conexión antes de guardar**: si algo
+está mal te lo dice en el momento, con lo que hay que revisar.
+
+> **Ojo con Gmail y Yahoo:** no aceptan la contraseña normal de la cuenta.
+> Hay que generar una **«contraseña de aplicación»** desde la cuenta (requiere
+> tener activada la verificación en dos pasos) y usar esa. La plataforma te lo
+> avisa en pantalla al elegir el proveedor.
+
+### Casillas compartidas del sector
+
+Un Administrador puede agregar una casilla como **compartida** (recepción@,
+turnos@) y darle acceso a un sector completo o a personas puntuales. Quien
+tenga acceso la ve en el mismo selector, al lado de la suya.
+
+### Usar el correo
+
+Carpetas a la izquierda, correos a la derecha. Se puede leer, **responder**,
+**escribir** uno nuevo con adjuntos, y **eliminar** (va a la papelera de la
+casilla, no se borra de verdad). El buscador busca en el servidor, así que
+encuentra también en correos viejos que no están a la vista.
+
+> **Las imágenes de los correos vienen bloqueadas.** No es capricho: muchas
+> son un píxel invisible que le avisa a quien te escribió que abriste el
+> correo, a qué hora y desde qué red. Si el correo es de confianza, hay un
+> botón para mostrarlas.
+
+### Lo que la plataforma NO hace
+
+No es un servidor de correo. **No recibe correo de internet y no abre ningún
+puerto**: se conecta hacia afuera al proveedor, igual que Outlook desde
+cualquier PC. Tampoco guarda los correos en su base de datos — los pide al
+proveedor cuando hacen falta y los descarta.
+
+---
+
 ## Bases de conocimiento
 
 ![Base de conocimiento](img/base-conocimiento.png)
@@ -385,7 +431,20 @@ recargar la página no rompe nada.
 
 **¿Quién puede leer mis chats?** Solo los participantes.
 
-**¿La información sale a internet?** No, nunca.
+**¿La información sale a internet?** No, nunca — con una excepción que
+elegís vos: si configurás el **Correo**, el servidor se conecta a tu proveedor
+de correo (Gmail, tu hosting, el que sea) para traer y mandar los mensajes.
+Son conexiones **salientes**, como las de Outlook: nadie desde internet puede
+entrar a la plataforma.
+
+**Pegué una captura en el chat con Ctrl+V y no pasó nada.** Tiene que estar el
+cursor en el cuadro de escribir. Si copiaste texto en vez de una imagen, se
+pega como texto (que es lo correcto).
+
+**Mi casilla dice que la contraseña está mal y estoy seguro de que no.** Si es
+Gmail o Yahoo, la contraseña normal de la cuenta no sirve: hace falta una
+«contraseña de aplicación». Si es Microsoft 365, quien administre el correo
+tiene que habilitar el acceso IMAP/SMTP para esa casilla.
 
 **Pegué una tabla de Excel y no se armó.** Tiene que ser un bloque de
 **Tabla**, y hay que pegar adentro de un casillero de esa tabla. Si copiaste

@@ -66,6 +66,9 @@ services:
       - cigst_uploads:/app/uploads
     environment:
       NODE_ENV: production
+      # Clave para cifrar las contrasenas de las casillas de correo. Si esta
+      # vacia, la seccion Correo queda desactivada y el resto sigue igual.
+      MAIL_ENCRYPTION_KEY: ${MAIL_ENCRYPTION_KEY:-}
       PORT: 3000
       # Zona horaria para los historiales de cambios y timestamps legibles.
       TZ: ${TZ:-America/Argentina/Buenos_Aires}

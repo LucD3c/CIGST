@@ -199,6 +199,28 @@ function Setup-Env {
   Ok "Archivo .env creado. Guardalo en un lugar seguro: contiene las contraseñas."
 }
 
+# Completa las claves que una version anterior del .env no tenia. Se ejecuta
+# siempre, tambien al actualizar: sin esto, quien ya tenia la plataforma
+# instalada veria la funcion nueva rota y sin explicacion.
+function Set-MissingEnvVars {
+  if (-not (Test-Path '.env')) { return }
+  $key = 'MAIL_ENCRYPTION_KEY'
+  $actual = Get-EnvValue $key
+  if ($actual -ne '') { return }
+  $bytes = New-Object 'System.Byte[]' 36
+  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  $clave = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', '').Substring(0, 40)
+  if ((Get-Content '.env') -match ('^' + [regex]::Escape($key) + '=')) {
+    Set-EnvVar $key $clave
+  } else {
+    Add-Content '.env' ''
+    Add-Content '.env' '# Clave para cifrar las contrasenas de las casillas de correo.'
+    Add-Content '.env' '# Generada automaticamente por el instalador: no hace falta tocarla.'
+    Add-Content '.env' ("$key=$clave")
+  }
+  Ok 'Se genero la clave de cifrado del correo y se guardo en .env.'
+}
+
 function Get-EnvValue([string]$Key) {
   if (-not (Test-Path '.env')) { return '' }
   $line = Get-Content '.env' | Where-Object { $_ -match ('^' + [regex]::Escape($Key) + '=') } | Select-Object -First 1
@@ -281,6 +303,7 @@ function Diagnose-Failure {
 
 function Do-Install {
   Setup-Env
+  Set-MissingEnvVars
   Title "Instalando / iniciando la plataforma"
   Say "  (la primera vez descarga y construye las imagenes: puede tardar varios minutos)"
   Say "  Paso 1/3: construyendo e iniciando contenedores..."

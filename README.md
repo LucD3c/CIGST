@@ -3,7 +3,7 @@
 # CIGST
 ### Centro Integral de Gestión de Soporte Técnico
 
-**Feed de novedades · Bases de conocimiento · Tickets con adjuntos · Personas · Equipos y espacios · Chat en tiempo real**
+**Correo · Feed de novedades · Bases de conocimiento · Tickets · Chat en tiempo real**
 
 Todo en un solo lugar, corriendo **100% dentro de la red de la empresa** —
 sin depender de internet ni de ningún servicio externo, en ningún momento.
@@ -13,7 +13,7 @@ sin depender de internet ni de ningún servicio externo, en ningún momento.
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.14-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](backend/tsconfig.json)
 [![npm audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilidades-brightgreen)](docs/seguridad.md)
-[![Sin llamadas externas](https://img.shields.io/badge/tráfico%20en%20runtime-100%25%20interno-informational)](docs/seguridad.md)
+[![Sin llamadas externas](https://img.shields.io/badge/tráfico-solo%20red%20interna-informational)](docs/seguridad.md)
 [![Uso](https://img.shields.io/badge/uso-interno%20%2F%20privado-lightgrey)](#)
 
 </div>
@@ -40,9 +40,14 @@ Mantenimiento, "Arreglar" y "Modificación"; y así con cada área. El
 formulario de ticket se adapta solo al sector elegido.
 
 Se instala con un solo comando, en una sola máquina de la red interna, y el
-resto de la empresa accede desde el navegador de siempre. **Nunca sale un
-byte a internet en el uso diario** — ver [Seguridad](docs/seguridad.md) para
-el detalle completo de esa garantía.
+resto de la empresa accede desde el navegador de siempre.
+
+**Nada de lo que se carga sale a internet**, con una sola excepción que se
+elige a propósito: si se configura el **Correo**, el servidor se conecta al
+proveedor de correo de la empresa para traer y enviar los mensajes. Son
+conexiones **salientes** —como las de Outlook—, no se abre ningún puerto y
+nadie desde internet puede entrar. Sin configurar correo, no sale un byte. El
+detalle completo está en [Seguridad](docs/seguridad.md).
 
 ## Por qué existe
 
@@ -60,9 +65,18 @@ el detalle completo de esa garantía.
 | Listas larguísimas donde los cerrados tapan lo urgente | Columnas ordenables y filtro que oculta los cerrados por defecto |
 | Los avisos de la empresa se pierden en un grupo de WhatsApp | Feed de novedades, con la grilla del sábado como tabla y no como captura |
 | Las claves de las obras sociales, en un Excel que circula por mail | Bases de conocimiento por área, con permisos y datos sensibles tapados |
+| Dos pestañas abiertas: el correo propio y el del sector | Las dos casillas en la misma pantalla, sin salir de la plataforma |
+| Una foto del celular ocupa 5 MB en el servidor | Las imágenes se achican solas antes de subir: **11 veces menos disco** |
 
 ## Funciones principales
 
+- 📬 **Correo** — las casillas que la empresa **ya tiene**, dentro de la
+  plataforma: leer, responder, enviar y eliminar sin abrir otra pestaña. Cada
+  persona agrega su casilla y las compartidas del sector (recepción, turnos).
+  Sirve con **cualquier proveedor** — Gmail, Microsoft 365, un hosting con
+  cPanel/Roundcube o un servidor propio — y **se configura desde la pantalla**,
+  sin tocar archivos ni código. No es un servidor de correo: solo hace
+  conexiones salientes, como Outlook. No abre ningún puerto.
 - 📰 **Feed de novedades** — el tablero de la empresa: avisos, novedades y la
   grilla de puestos del sábado. Publican Administradores y Supervisores; lo lee
   todo el personal. Se puede **pegar una tabla desde Excel** y queda como tabla
@@ -87,9 +101,13 @@ el detalle completo de esa garantía.
   que uno espera en castellano: ignora mayúsculas, ubica bien los acentos y
   la ñ, y compara los números por valor (*Consultorio 3* antes que
   *Consultorio 213*).
-- 📎 **Archivos adjuntos** — imágenes, PDF y planillas en tickets y en el
-  chat. Las imágenes se ven directamente; el resto se descarga. Hasta 5
-  archivos de 10 MB por vez.
+- 📎 **Archivos adjuntos** — imágenes, PDF y planillas en tickets, chat,
+  novedades y bases. Las imágenes se ven directamente; el resto se descarga.
+  Hasta 5 archivos de 10 MB por vez. En el chat y en los editores se puede
+  **pegar una captura con Ctrl+V** (la herramienta de Recortes de Windows deja
+  la imagen en el portapapeles y se adjunta sola).
+  Las **fotos se comprimen en el navegador** antes de subir: una foto de
+  celular pasa de ~7 MB a ~500 KB, así el disco del servidor no se llena.
 - 👤 **Personas** — ficha por colaborador con su sector, contacto y tickets.
   Se le carga el **horario laboral** eligiendo entrada y salida de un reloj,
   y la plataforma muestra sola si está **en línea** o **fuera de horario**,

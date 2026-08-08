@@ -117,6 +117,12 @@ random_password() {
   LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20
 }
 
+# Clave larga para cifrar las credenciales de correo: de ella depende que esas
+# contrasenas sigan a salvo aunque alguien se lleve una copia de la base.
+random_key() {
+  LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 48
+}
+
 # Reemplaza el valor de una clave en .env (portable Linux/mac, sin sed -i).
 set_env_var() {
   local key="$1" value="$2"
@@ -143,6 +149,35 @@ read_password() {
     say "  La contraseña debe tener entre 8 y 64 caracteres y usar solo letras,"
     say "  numeros o . _ ! @ # % ^ * + = -  (sin espacios ni comillas)."
   done
+}
+
+# Completa las claves que una version anterior no tenia. Se ejecuta SIEMPRE,
+# tambien al actualizar: sin esto, quien ya tenia la plataforma instalada
+# tendria que editar el .env a mano cada vez que una funcion nueva necesita
+# una variable, y la funcion aparecería rota sin explicacion.
+ensure_env_vars() {
+  [ -f .env ] || return 0
+  local key="MAIL_ENCRYPTION_KEY"
+  local actual
+  actual=$(grep -E "^${key}=" .env 2>/dev/null | cut -d= -f2-)
+  if [ -n "$actual" ]; then
+    return 0
+  fi
+  if grep -qE "^${key}=" .env 2>/dev/null; then
+    set_env_var "$key" "$(random_key)"
+  else
+    {
+      printf '
+'
+      printf '# Clave para cifrar las contrasenas de las casillas de correo.
+'
+      printf '# Generada automaticamente por el instalador: no hace falta tocarla.
+'
+      printf '%s=%s
+' "$key" "$(random_key)"
+    } >> .env
+  fi
+  ok "Se genero la clave de cifrado del correo y se guardo en .env."
 }
 
 setup_env() {
@@ -253,6 +288,7 @@ diagnose_failure() {
 
 do_install() {
   setup_env
+  ensure_env_vars
   title "Instalando / iniciando la plataforma"
   say "  (la primera vez descarga y construye las imagenes: puede tardar varios minutos)"
   say "  Paso 1/3: construyendo e iniciando contenedores..."

@@ -206,6 +206,88 @@ Es una **optimización, no un control de seguridad**: alguien podría subir por
 la API sin pasar por el navegador. El límite de 10 MB por archivo sigue
 aplicándose en el servidor, que es donde corresponde.
 
+## Decisión: el correo se configura desde la pantalla, no desde el `.env`
+
+La plataforma se conecta por IMAP/SMTP a las casillas que la empresa ya tiene.
+Los datos de servidor **no** viven en el `.env` ni en el código: se cargan
+desde la pantalla, y por eso funciona con cualquier proveedor sin tocar nada.
+
+La configuración está partida en dos a propósito:
+
+| | Quién | Qué |
+|---|---|---|
+| `MailProvider` | Administrador | Host y puerto de IMAP y SMTP. Es la parte que puede salir mal o ser peligrosa. |
+| `MailAccount` | Cada persona | Su casilla, con su usuario y contraseña. Las compartidas del sector las crea un Administrador. |
+
+Así nadie tiene que pedirle los puertos a Infraestructura cada vez que se suma
+alguien, y ningún Administrador ve la contraseña personal de nadie. Hay presets
+para los proveedores habituales (Gmail, Microsoft 365, cPanel/Roundcube, Zoho,
+Yahoo) que son **solo atajos**: siempre se puede cargar uno a mano.
+
+### Lo que cambia en el perfil de riesgo
+
+Hasta el correo, la plataforma no guardaba **nada** reversible: la contraseña
+de una persona es un hash bcrypt y la sesión es un hash SHA-256. Un cliente de
+correo no puede funcionar así — para conectarse al IMAP tiene que mandar la
+contraseña real.
+
+Se asume con tres decisiones explícitas:
+
+- **AES-256-GCM** con la clave en `MAIL_ENCRYPTION_KEY`, que vive en el `.env`
+  y **no** en la base. Quien se lleve un volcado sin el `.env` no puede hacer
+  nada con esos cifrados. GCM además autentica: si alguien edita el cifrado en
+  la base, el descifrado falla en vez de devolver basura.
+- **Sin esa variable, el correo queda desactivado** y el resto funciona igual.
+  No hay clave por defecto ni derivada: fallar cerrado es preferible a cifrar
+  con algo que cualquiera pueda reproducir leyendo el código. El instalador la
+  genera sola, también al actualizar una instalación vieja.
+- Cada cifrado lleva su propio nonce, así dos casillas con la misma contraseña
+  no producen el mismo texto cifrado.
+
+### SSRF: a dónde se le permite conectarse al servidor
+
+Configurar un servidor de correo es, técnicamente, decirle al backend "abrí una
+conexión a este host y este puerto". Sin acotarlo, alguien con acceso de
+Administrador podría apuntarlo a cualquier cosa que la plataforma alcance desde
+adentro de la red y usarla como sonda.
+
+`mail.network.ts` lo cierra: **resuelve el nombre antes de conectar** (no
+alcanza con revisar el texto — `correo.empresa.com` puede resolver a
+`127.0.0.1`), rechaza direcciones privadas, de loopback y de enlace local
+—incluida `169.254.169.254`, la de metadatos de nube—, y limita los puertos a
+los de correo. Se comprueba al guardar **y otra vez antes de cada conexión**,
+porque entre una cosa y la otra un dominio puede cambiar a dónde apunta.
+
+Si el servidor de correo está de verdad en la red interna, un Administrador lo
+habilita con una casilla explícita. Es una decisión consciente, no un accidente.
+
+### El HTML de los correos
+
+Es la superficie más expuesta de la plataforma: todo lo demás lo escribió
+alguien de la empresa, un correo lo escribió cualquiera. La defensa es de dos
+capas, y la que sostiene el peso es la segunda:
+
+1. `mail.sanitize.ts` saca lo obviamente peligroso y desactiva las imágenes
+   remotas (un píxel de seguimiento delata que se abrió el correo, desde qué IP
+   y a qué hora).
+2. El resultado se muestra en un **`<iframe sandbox>` sin `allow-scripts`**,
+   con su propia CSP. Eso no es una limpieza que pueda tener un agujero: es el
+   navegador el que garantiza que ahí adentro no corre JavaScript. Aunque la
+   limpieza dejara pasar algo, no habría ejecución. Verificado: el navegador
+   registra `Blocked script execution in 'about:srcdoc'`.
+
+### Rendimiento
+
+No se guarda ningún correo en la base: se le piden al proveedor los datos de la
+pantalla y se descartan. Eso evita duplicar información sensible (en un centro
+médico, el correo tiene datos de pacientes) y hace que el disco no crezca por
+tener la plataforma abierta.
+
+Las conexiones IMAP se reservan 90 segundos y se reusan: abrir una cuesta
+entre medio segundo y un segundo (saludo TLS + autenticación), y hacerlo en
+cada clic haría que la bandeja se sienta pesada. Hay un tope de 30 conexiones
+simultáneas para que la memoria no crezca sin límite.
+
 ## Decisión: contenido por bloques, nunca HTML del usuario
 
 El feed y las bases de conocimiento necesitan texto con formato, tablas,

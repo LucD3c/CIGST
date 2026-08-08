@@ -12,6 +12,7 @@ import { notificationsRouter } from '../modules/notifications/notifications.rout
 import { attachmentsRouter } from '../modules/attachments/attachments.routes';
 import { feedRouter } from '../modules/feed/feed.routes';
 import { knowledgeRouter } from '../modules/knowledge/knowledge.routes';
+import { mailRouter } from '../modules/mail/mail.routes';
 import { apiRateLimiter } from '../middleware/rateLimit.middleware';
 
 export const apiRouter = Router();
@@ -38,3 +39,4 @@ apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/attachments', attachmentsRouter);
 apiRouter.use('/feed', feedRouter);
 apiRouter.use('/knowledge', knowledgeRouter);
+apiRouter.use('/mail', mailRouter);
