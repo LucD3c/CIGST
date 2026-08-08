@@ -1,5 +1,10 @@
 # Seguridad
 
+> Este documento explica **cómo** está protegida la plataforma. Si lo que
+> buscás es **la prueba** de que esas protecciones funcionan, está en
+> [auditoria-seguridad.md](auditoria-seguridad.md): 46 controles ejecutados
+> contra la plataforma corriendo.
+
 ## Autenticación y sesiones
 
 - Contraseñas con hash **bcrypt** (12 rondas), nunca en texto plano.

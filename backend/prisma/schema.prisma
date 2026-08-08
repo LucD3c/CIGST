@@ -677,7 +677,7 @@ model MailAccount {
   email       String
   displayName String? @map("display_name")
   // Usuario de acceso cuando no coincide con la direccion (algunos
-  // proveedores usan "juan" en vez de "juan@empresa.com").
+  // proveedores usan "juan" en vez de "juan@empresa.local").
   authUser    String? @map("auth_user")
   // Contrasena cifrada con AES-256-GCM. Nunca sale de aca en claro ni viaja
   // al cliente en ninguna respuesta.

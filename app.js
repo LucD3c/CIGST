@@ -2992,7 +2992,7 @@ async function mailPanelCuentas() {
     + `<div class="field"><label>Proveedor</label><select name="providerId">`
     + proveedores.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')
     + `</select></div>`
-    + `<div class="field"><label>Dirección de correo</label><input name="email" placeholder="vos@empresa.com" /></div>`
+    + `<div class="field"><label>Dirección de correo</label><input name="email" placeholder="vos@empresa.local" /></div>`
     + `<div class="field"><label>Nombre para mostrar</label><input name="displayName" placeholder="Opcional" /></div>`
     + `<div class="field"><label>Usuario de acceso</label><input name="authUser" placeholder="Solo si no es la dirección completa" /></div>`
     + `<div class="field form-span"><label>Contraseña de la casilla</label>`

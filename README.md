@@ -13,6 +13,7 @@ sin depender de internet ni de ningún servicio externo, en ningún momento.
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.14-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](backend/tsconfig.json)
 [![npm audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilidades-brightgreen)](docs/seguridad.md)
+[![Auditoría](https://img.shields.io/badge/auditoría%20de%20seguridad-46%2F46-brightgreen)](docs/auditoria-seguridad.md)
 [![Sin llamadas externas](https://img.shields.io/badge/tráfico-solo%20red%20interna-informational)](docs/seguridad.md)
 [![Uso](https://img.shields.io/badge/uso-interno%20%2F%20privado-lightgrey)](#)
 
@@ -284,6 +285,7 @@ chat explicada punto por punto: **[docs/seguridad.md](docs/seguridad.md)**.
 | 🏗️ **[Arquitectura](docs/arquitectura.md)** | Desarrolladores — stack, estructura del código, decisiones de diseño. |
 | 🗄️ **[Modelo de datos](docs/base-de-datos.md)** | Desarrolladores — entidades, convenciones, migraciones. |
 | 🔐 **[Seguridad](docs/seguridad.md)** | Cualquiera evaluando si confiar en la plataforma. |
+| 🛡️ **[Auditoría de seguridad](docs/auditoria-seguridad.md)** | 46 controles probados contra la plataforma corriendo, no declarados. |
 | 🏢 **[Puesta en producción](docs/deployment-empresa.md)** | Infraestructura — reverse proxy (nginx/Apache), HTTPS y WebSocket. |
 
 ---

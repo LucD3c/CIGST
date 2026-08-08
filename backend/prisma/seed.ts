@@ -99,7 +99,7 @@ async function main() {
     create: {
       code: 'EMP-001',
       name: 'María González',
-      email: 'mgonzalez@centromedico.com',
+      email: 'mgonzalez@empresa.local',
       extension: '101',
       sectorId: sectors.get('Administración'),
       position: 'Colaboradora',
