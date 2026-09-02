@@ -14,12 +14,30 @@ import { feedRouter } from '../modules/feed/feed.routes';
 import { knowledgeRouter } from '../modules/knowledge/knowledge.routes';
 import { mailRouter } from '../modules/mail/mail.routes';
 import { apiRateLimiter } from '../middleware/rateLimit.middleware';
+import { prisma } from '../db/prisma';
+import { logger } from '../utils/logger';
 
 export const apiRouter = Router();
 
 // /health no lleva limite: lo pega el healthcheck de Docker cada 30s, de por
 // vida del contenedor, y nunca hay motivo para bloquearlo.
-apiRouter.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+//
+// IMPORTANTE: consulta la base de verdad. Antes devolvia {status:'ok'} fijo sin
+// tocar nada, con lo cual Docker informaba "healthy" aunque Postgres estuviera
+// caido o el pool de conexiones agotado: la pantalla de estado decia que estaba
+// todo bien mientras cada pantalla de la plataforma devolvia error. Ahora un
+// problema de base se refleja donde tiene que reflejarse.
+apiRouter.get('/health', (_req, res) => {
+  void (async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.status(200).json({ status: 'ok', db: 'ok' });
+    } catch (err) {
+      logger.error({ err }, 'Healthcheck: la base de datos no responde.');
+      res.status(503).json({ status: 'error', db: 'sin conexión' });
+    }
+  })();
+});
 
 // Red de contencion general para el resto de /api (ver el comentario en
 // rateLimit.middleware.ts). Los endpoints mas sensibles (login, chat) tienen

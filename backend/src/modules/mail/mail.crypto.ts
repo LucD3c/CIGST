@@ -21,6 +21,7 @@
 
 import crypto from 'crypto';
 import { logger } from '../../utils/logger';
+import { HttpError } from '../../utils/httpError';
 
 const ALGORITMO = 'aes-256-gcm';
 const NONCE_BYTES = 12;
@@ -64,17 +65,41 @@ export function cifrar(texto: string): string {
   return Buffer.concat([nonce, tag, datos]).toString('base64');
 }
 
+// Se lanza cuando hay credenciales guardadas que ya no se pueden descifrar.
+// El caso tipico y perfectamente esperable: se restaura una copia de seguridad
+// en una instalacion nueva, donde el instalador genero una MAIL_ENCRYPTION_KEY
+// distinta a la de origen. Antes eso salia como un 500 mudo y no habia forma de
+// entender que estaba pasando.
+export class ClaveDeCorreoInvalida extends HttpError {
+  constructor() {
+    super(
+      409,
+      'No se pueden leer las credenciales de correo guardadas: la clave de cifrado (MAIL_ENCRYPTION_KEY) ' +
+        'no es la misma con la que se guardaron. Suele pasar al restaurar una copia de seguridad en una ' +
+        'instalación nueva. Solución: copiá el valor de MAIL_ENCRYPTION_KEY del archivo .env original, o ' +
+        'volvé a cargar la contraseña de cada casilla desde Correo → Servidores.',
+    );
+    this.name = 'ClaveDeCorreoInvalida';
+  }
+}
+
 export function descifrar(cifrado: string): string {
   const k = clave();
   if (!k) throw new Error('MAIL_ENCRYPTION_KEY no está configurada.');
   const bruto = Buffer.from(cifrado, 'base64');
-  if (bruto.length <= NONCE_BYTES + TAG_BYTES) throw new Error('Credencial de correo inválida.');
+  if (bruto.length <= NONCE_BYTES + TAG_BYTES) throw new ClaveDeCorreoInvalida();
   const nonce = bruto.subarray(0, NONCE_BYTES);
   const tag = bruto.subarray(NONCE_BYTES, NONCE_BYTES + TAG_BYTES);
   const datos = bruto.subarray(NONCE_BYTES + TAG_BYTES);
-  const decipher = crypto.createDecipheriv(ALGORITMO, k, nonce);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(datos), decipher.final()]).toString('utf8');
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITMO, k, nonce);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(datos), decipher.final()]).toString('utf8');
+  } catch {
+    // AES-GCM autentica: si la clave no es la correcta, el descifrado falla
+    // aca en vez de devolver basura. Se traduce a un error explicativo.
+    throw new ClaveDeCorreoInvalida();
+  }
 }
 
 /** Para los registros: nunca se escribe una credencial, ni siquiera cifrada. */

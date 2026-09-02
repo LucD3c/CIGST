@@ -2,9 +2,15 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import * as service from './logbook.service';
 
-export const list = asyncHandler(async (_req: Request, res: Response) => {
-  const entries = await service.list();
-  res.json({ entries });
+export const list = asyncHandler(async (req: Request, res: Response) => {
+  const pagina = await service.listarPagina(req.query as never);
+  res.json({
+    entries: pagina.items,
+    total: pagina.total,
+    page: pagina.page,
+    pageSize: pagina.pageSize,
+    totalPaginas: pagina.totalPaginas,
+  });
 });
 
 export const getOne = asyncHandler(async (req: Request, res: Response) => {

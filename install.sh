@@ -351,13 +351,50 @@ do_backup() {
   fi
   say "  Guardando los archivos adjuntos..."
   docker compose exec -T app sh -c 'cd /app/uploads && tar cf - .' > "$dir/adjuntos.tar" 2>>"$LOG_FILE" || true
-  cp .env "$dir/env-respaldo" 2>/dev/null || true
+
+  # El .env NO se guarda junto a los datos.
+  #
+  # Antes se copiaba tal cual dentro de la misma carpeta, y ese archivo tiene la
+  # clave con la que se descifran las contrasenas de las casillas de correo. O
+  # sea que la carpeta contenia a la vez los datos cifrados Y la llave para
+  # abrirlos: quien se llevara el pendrive se llevaba todo. Ahora la
+  # configuracion va aparte, en un archivo protegido con una contrasena que
+  # elige la persona, y se guarda por separado a proposito.
+  say ""
+  say "  Falta guardar la configuracion (.env), que incluye la clave con la que"
+  say "  se descifran las contrasenas de las casillas de correo."
+  say "  Se guarda en un archivo SEPARADO y protegido con una contrasena."
+  local pass_cfg pass_cfg2
+  read_password "  Contrasena para proteger la configuracion [Enter = omitir]: " pass_cfg
+  if [ -n "$pass_cfg" ]; then
+    read_password "  Repetila para confirmar: " pass_cfg2
+    if [ "$pass_cfg" != "$pass_cfg2" ]; then
+      warn "Las contrasenas no coinciden: la configuracion NO se guardo."
+    elif command -v openssl >/dev/null 2>&1; then
+      if printf '%s' "$pass_cfg" | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+           -in .env -out "$dir/configuracion.env.cifrado" -pass stdin 2>>"$LOG_FILE"; then
+        chmod 600 "$dir/configuracion.env.cifrado" 2>/dev/null || true
+        ok "Configuracion guardada cifrada en configuracion.env.cifrado"
+        say "  Anotate esa contrasena: sin ella el archivo no se puede abrir."
+      else
+        fail "No se pudo cifrar la configuracion. Detalle en $LOG_FILE"
+      fi
+    else
+      warn "No hay openssl en esta maquina: la configuracion no se guardo cifrada."
+      say "  Copiate el archivo .env a mano y guardalo en un lugar distinto al de la copia."
+    fi
+  else
+    say "  Se omitio. Acordate de guardar el .env por tu cuenta, en OTRO lugar."
+  fi
 
   local size
   size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+  say ""
   ok "Copia guardada en: $dir  (${size:-?})"
-  say "  Incluye: base de datos completa, archivos adjuntos y una copia del .env."
-  warn "Guardá esa carpeta fuera de esta máquina (pendrive, red, nube privada)."
+  say "  Incluye: la base de datos completa y todos los archivos adjuntos."
+  warn "Guardala fuera de esta maquina (pendrive, disco externo, red, nube privada)."
+  warn "Y guarda la contrasena de la configuracion en OTRO lado, no junto a la copia:"
+  say "  si las dos cosas viajan juntas, es como dejar la llave pegada en la puerta."
 }
 
 # Restaura una copia hecha con la opcion 6. Pisa TODOS los datos actuales.
@@ -384,6 +421,37 @@ do_restore() {
     say "  Cancelado: no se toco nada."
     return 0
   fi
+  # Si la copia trae la configuracion cifrada, se ofrece restaurarla ANTES que
+  # nada. Importa: si la clave de correo no es la misma con la que se guardaron
+  # las casillas, esas credenciales quedan ilegibles y hay que volver a
+  # cargarlas a mano.
+  if [ -f "backups/$choice/configuracion.env.cifrado" ]; then
+    say ""
+    say "  Esta copia incluye la configuracion cifrada (.env)."
+    say "  Restaurarla conserva la clave con la que se guardaron las casillas de correo."
+    printf '  Restaurar la configuracion? [s/N]: '
+    read -r quiere_cfg
+    case "$quiere_cfg" in
+      s|S|si|SI|Si)
+        local pass_cfg
+        read_password "  Contrasena de la configuracion: " pass_cfg
+        if printf '%s' "$pass_cfg" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+             -in "backups/$choice/configuracion.env.cifrado" -out .env.restaurado -pass stdin 2>>"$LOG_FILE"; then
+          cp .env ".env.anterior-$(date '+%Y%m%d-%H%M')" 2>/dev/null || true
+          mv .env.restaurado .env
+          chmod 600 .env 2>/dev/null || true
+          ok "Configuracion restaurada (se guardo la anterior como .env.anterior-*)."
+        else
+          rm -f .env.restaurado
+          fail "Contrasena incorrecta: la configuracion NO se restauro."
+          warn "Se sigue con la configuracion actual. Si las casillas de correo dan error,"
+          say "  hay que volver a cargar sus contrasenas desde Correo -> Servidores."
+        fi
+        ;;
+      *) say "  Se conserva la configuracion actual." ;;
+    esac
+  fi
+
   local user db
   user=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2); user=${user:-cigst}
   db=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2); db=${db:-cigst}
@@ -478,6 +546,145 @@ do_reset() {
 }
 
 # --- Menu principal ----------------------------------------------------------
+
+# --- Limpieza de datos sin uso -----------------------------------------------
+#
+# Lo que se borra son SOLO datos que ya no le sirven a nadie:
+#   - sesiones vencidas (tokens muertos que la plataforma rechaza igual),
+#   - intentos de inicio de sesion viejos,
+#   - avisos de la campanita ya leidos y antiguos,
+#   - el "visto" de publicaciones que ya fueron dadas de baja,
+#   - archivos fisicos en disco sin ninguna fila que los referencie, o sea
+#     inalcanzables desde la plataforma.
+#
+# NUNCA se borra un ticket, un mensaje, una conversacion, una imagen, un PDF,
+# una planilla, una persona, un equipo, un sector ni un articulo. Tampoco los
+# que estan dados de baja: esos se conservan para siempre.
+do_limpieza() {
+  title "Liberar espacio (datos sin uso)"
+  if [ "$(service_health app)" != "healthy" ]; then
+    fail "La plataforma no esta funcionando: encendela (opcion 1) antes de limpiar."
+    return 1
+  fi
+
+  say "  Se van a eliminar UNICAMENTE datos que ya no le sirven a nadie:"
+  say "    - sesiones vencidas (nadie puede volver a usarlas)"
+  say "    - intentos de inicio de sesion viejos"
+  say "    - avisos de la campanita ya leidos, de mas de 90 dias"
+  say "    - el 'visto' de publicaciones que ya fueron dadas de baja"
+  say "    - archivos sueltos en disco que ya no figuran en la base"
+  say ""
+  say "  NO se toca NADA de esto, ni siquiera lo dado de baja:"
+  say "    tickets, mensajes, conversaciones, imagenes, PDF, planillas,"
+  say "    personas, equipos, sectores, articulos ni la bitacora."
+  say ""
+  printf '  Continuar? [s/N]: '
+  read -r r
+  case "$r" in
+    s|S|si|SI|Si) ;;
+    *) say "  Cancelado: no se toco nada."; return 0 ;;
+  esac
+
+  say "  Limpiando..."
+  local antes despues
+  antes=$(uso_disco_actual)
+  if docker compose exec -T app node dist/maintenance/limpiar.js 2>>"$LOG_FILE"; then
+    despues=$(uso_disco_actual)
+    ok "Listo."
+    say "  Adjuntos en disco: ${antes:-?} -> ${despues:-?}"
+  else
+    fail "No se pudo completar la limpieza. Detalle en $LOG_FILE"
+    return 1
+  fi
+}
+
+uso_disco_actual() {
+  docker compose exec -T app sh -c 'du -sh /app/uploads 2>/dev/null | cut -f1' 2>/dev/null | tr -d '\r'
+}
+
+# --- Copia de seguridad automatica -------------------------------------------
+#
+# Una copia que depende de que alguien se acuerde de hacerla no es una copia.
+# Esto programa la tarea en el sistema para que corra sola.
+do_backup_programado() {
+  title "Programar copias de seguridad automaticas"
+
+  if ! command -v crontab >/dev/null 2>&1; then
+    fail "Esta maquina no tiene 'cron', asi que no se puede programar desde aca."
+    say "  En Windows se puede hacer con el Programador de tareas, ejecutando:"
+    say "    $(pwd)/install.sh --backup-automatico"
+    return 1
+  fi
+
+  local ruta actual
+  ruta="$(cd "$(dirname "$0")" && pwd)/install.sh"
+  actual=$(crontab -l 2>/dev/null | grep -c 'cigst-backup' || true)
+
+  if [ "${actual:-0}" -gt 0 ]; then
+    say "  Ya hay copias automaticas programadas:"
+    crontab -l 2>/dev/null | grep 'cigst-backup' | sed 's/^/    /'
+    say ""
+    printf '  Querés quitarlas? [s/N]: '
+    read -r quitar
+    case "$quitar" in
+      s|S|si|SI|Si)
+        crontab -l 2>/dev/null | grep -v 'cigst-backup' | crontab -
+        ok "Copias automaticas desactivadas."
+        ;;
+      *) say "  Se dejan como estaban." ;;
+    esac
+    return 0
+  fi
+
+  say "  Cada cuanto queres que se haga la copia?"
+  say "    1) Todos los dias a las 2 de la madrugada  (recomendado)"
+  say "    2) Una vez por semana, domingos a las 2"
+  printf '  Elegi [1/2, Enter = 1]: '
+  read -r cada
+  local linea
+  case "$cada" in
+    2) linea="0 2 * * 0 cd $(pwd) && sh $ruta --backup-automatico >/dev/null 2>&1 # cigst-backup" ;;
+    *) linea="0 2 * * * cd $(pwd) && sh $ruta --backup-automatico >/dev/null 2>&1 # cigst-backup" ;;
+  esac
+
+  (crontab -l 2>/dev/null; printf '%s\n' "$linea") | crontab -
+  ok "Copias automaticas activadas."
+  say "  Se guardan en: $(pwd)/backups"
+  warn "IMPORTANTE: estas copias quedan en ESTE MISMO disco."
+  say "  Si el disco se rompe, se rompen con el. Copialas cada tanto a otro lado"
+  say "  (un disco externo, una carpeta de red, un pendrive)."
+  say ""
+  say "  Nota: la copia automatica NO guarda la configuracion (.env), porque eso"
+  say "  necesita una contrasena que alguien tiene que escribir. Guarda el .env"
+  say "  por tu cuenta una vez, y despues solo cuando cambies algo de correo."
+}
+
+# Copia sin preguntas, para que la ejecute el programador de tareas.
+# A diferencia de la copia manual NO incluye el .env: cifrarlo requiere que
+# alguien escriba una contrasena, y guardarlo sin cifrar seria dejar la llave
+# de las casillas de correo tirada al lado de los datos.
+do_backup_automatico() {
+  local stamp dir user db
+  stamp=$(date '+%Y-%m-%d_%H-%M')
+  dir="backups/$stamp"
+  mkdir -p "$dir"
+  user=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2)
+  db=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2)
+
+  docker compose exec -T db pg_dump -U "${user:-cigst}" -d "${db:-cigst}" > "$dir/base-de-datos.sql" 2>>"$LOG_FILE" || {
+    rm -rf "$dir"
+    exit 1
+  }
+  docker compose exec -T app sh -c 'cd /app/uploads && tar cf - .' > "$dir/adjuntos.tar" 2>>"$LOG_FILE" || true
+
+  # Se conservan las ultimas 14 copias: sin esto, las copias automaticas
+  # terminarian llenando el disco que vinieron a proteger.
+  ls -1d backups/*/ 2>/dev/null | sort | head -n -14 | while read -r vieja; do
+    rm -rf "$vieja"
+  done
+  exit 0
+}
+
 main_menu() {
   while true; do
     printf '\n'
@@ -491,9 +698,11 @@ main_menu() {
     printf '   5) Detener la plataforma\n'
     printf '   6) Hacer copia de seguridad (datos + adjuntos)\n'
     printf '   7) Restaurar una copia de seguridad\n'
-    printf '   8) Resetear todo (BORRA los datos)\n'
-    printf '   9) Salir\n'
-    printf '   Elegi una opcion [1-9]: '
+    printf '   8) Programar copias automaticas\n'
+    printf '   9) Liberar espacio (borra solo datos SIN USO)\n'
+    printf '  10) Resetear todo (BORRA los datos)\n'
+    printf '  11) Salir\n'
+    printf '   Elegi una opcion [1-11]: '
     read -r opt || exit 0
     case "$opt" in
       1) do_install ;;
@@ -503,13 +712,20 @@ main_menu() {
       5) do_stop ;;
       6) do_backup ;;
       7) do_restore ;;
-      8) do_reset ;;
-      9) say "Hasta luego."; exit 0 ;;
-      *) say "  Opcion invalida: elegi un numero del 1 al 9." ;;
+      8) do_backup_programado ;;
+      9) do_limpieza ;;
+      10) do_reset ;;
+      11) say "Hasta luego."; exit 0 ;;
+      *) say "  Opcion invalida: elegi un numero del 1 al 11." ;;
     esac
   done
 }
 
 log "===== install.sh iniciado ====="
 check_docker
+# Modo automatico: lo usa la tarea programada, sin menu ni preguntas.
+if [ "${1:-}" = "--backup-automatico" ]; then
+  do_backup_automatico
+fi
+
 main_menu

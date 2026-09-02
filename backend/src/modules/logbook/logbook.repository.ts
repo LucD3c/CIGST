@@ -13,12 +13,40 @@ export function findMany() {
   return prisma.logbookEntry.findMany({ where: activeFilter, include, orderBy: { occurredAt: 'desc' } });
 }
 
+export function filtroBusqueda(q?: string) {
+  return {
+    ...activeFilter,
+    ...(q
+      ? {
+          OR: [
+            { title: { contains: q, mode: 'insensitive' as const } },
+            { code: { contains: q, mode: 'insensitive' as const } },
+            { category: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  };
+}
+
+export async function findPage(
+  where: Record<string, unknown>,
+  skip: number,
+  take: number,
+  orderBy: Record<string, unknown>,
+) {
+  const [items, total] = await Promise.all([
+    prisma.logbookEntry.findMany({ where, include, orderBy, skip, take }),
+    prisma.logbookEntry.count({ where }),
+  ]);
+  return { items, total };
+}
+
 export function findById(id: string) {
   return prisma.logbookEntry.findFirst({ where: { id, ...activeFilter }, include });
 }
 
 export async function create(data: Record<string, unknown>) {
-  const code = await nextCode('BIT', () => prisma.logbookEntry.count());
+  const code = await nextCode('BIT', async (c) => (await prisma.logbookEntry.count({ where: { code: c } })) > 0);
   return prisma.logbookEntry.create({ data: { ...data, code } as never, include });
 }
 

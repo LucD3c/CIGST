@@ -1,5 +1,5 @@
 import { prisma } from '../../db/prisma';
-import type { StoredBlock } from '../../utils/contentBlocks';
+import { plainTextOf, type StoredBlock, type ContentBlock } from '../../utils/contentBlocks';
 
 const activo = { deletedAt: null } as const;
 
@@ -85,6 +85,13 @@ export function findArticleById(id: string) {
   return prisma.kbArticle.findFirst({ where: { id, ...activo }, include: articleInclude });
 }
 
+// Texto buscable de un articulo: titulo + contenido de los bloques, con los
+// campos ocultos ya excluidos por plainTextOf.
+function textoBuscable(title: string, blocks: StoredBlock[]): string {
+  const cuerpo = plainTextOf(blocks as unknown as ContentBlock[]);
+  return `${title}\n${cuerpo}`.toLowerCase().slice(0, 100000);
+}
+
 export async function createArticle(data: {
   sectionId: string;
   title: string;
@@ -100,6 +107,7 @@ export async function createArticle(data: {
     data: {
       sectionId: data.sectionId,
       title: data.title,
+      searchText: textoBuscable(data.title, data.blocks),
       updatedById: data.updatedById,
       position: (ultima?.position ?? -1) + 1,
       blocks: { create: data.blocks.map((b) => ({ kind: b.kind, position: b.position, data: b.data as object })) },
@@ -121,12 +129,29 @@ export function updateArticle(
         data: data.blocks.map((b) => ({ articleId: id, kind: b.kind, position: b.position, data: b.data as object })),
       });
     }
+    // El texto buscable se recalcula cuando cambia el titulo o el contenido.
+    // Si solo cambio la posicion, no hace falta tocarlo.
+    let searchText: string | undefined;
+    if (data.blocks || data.title !== undefined) {
+      const actual = await tx.kbArticle.findUnique({ where: { id }, select: { title: true } });
+      const titulo = data.title ?? actual?.title ?? '';
+      const bloques =
+        data.blocks ??
+        ((await tx.kbBlock.findMany({
+          where: { articleId: id },
+          orderBy: { position: 'asc' },
+          select: { kind: true, position: true, data: true },
+        })) as unknown as StoredBlock[]);
+      searchText = textoBuscable(titulo, bloques);
+    }
+
     await tx.kbArticle.update({
       where: { id },
       data: {
         ...(data.title !== undefined ? { title: data.title } : {}),
         ...(data.sectionId !== undefined ? { sectionId: data.sectionId } : {}),
         ...(data.position !== undefined ? { position: data.position } : {}),
+        ...(searchText !== undefined ? { searchText } : {}),
         updatedById: data.updatedById,
       },
     });

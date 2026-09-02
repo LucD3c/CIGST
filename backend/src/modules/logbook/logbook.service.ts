@@ -2,6 +2,7 @@ import { HttpError } from '../../utils/httpError';
 import { prisma } from '../../db/prisma';
 import * as repo from './logbook.repository';
 import type { CreateLogbookEntryInput, UpdateLogbookEntryInput } from './logbook.schema';
+import { armarPagina, ordenar, saltear, type PaginationQuery } from '../../utils/pagination';
 
 async function assertTicketExists(id: string | null | undefined) {
   if (!id) return;
@@ -17,6 +18,20 @@ async function assertEquipmentExists(id: string | null | undefined) {
 
 export async function list() {
   return repo.findMany();
+}
+
+const ORDEN: Record<string, (dir: 'asc' | 'desc') => Record<string, unknown>> = {
+  occurredAt: (d) => ({ occurredAt: d }),
+  code: (d) => ({ code: d }),
+  title: (d) => ({ title: d }),
+  category: (d) => ({ category: d }),
+};
+
+export async function listarPagina(query: PaginationQuery) {
+  const where = repo.filtroBusqueda(query.q);
+  const orderBy = ordenar(ORDEN, query.sort, query.dir, { occurredAt: 'desc' });
+  const { items, total } = await repo.findPage(where, saltear(query.page, query.pageSize), query.pageSize, orderBy);
+  return armarPagina(items, total, query.page, query.pageSize);
 }
 
 export async function getById(id: string) {

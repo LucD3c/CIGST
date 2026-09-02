@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import * as controller from './tickets.controller';
 import { createTicketSchema, updateTicketSchema } from './tickets.schema';
-import { idParamSchema, listQuerySchema } from '../../utils/commonSchemas';
+import { idParamSchema } from '../../utils/commonSchemas';
+import { paginationQuerySchema } from '../../utils/pagination';
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
 import { requireRole, ROLES, STAFF_ROLES } from '../../middleware/rbac.middleware';
@@ -17,7 +18,8 @@ ticketsRouter.get('/form-options', controller.formOptions);
 
 // Listado y detalle: cada rol ve su propio recorte (el service aplica el filtro
 // segun quien pregunta), por eso no hay requireRole aca.
-ticketsRouter.get('/', validate({ query: listQuerySchema }), controller.list);
+ticketsRouter.get('/', validate({ query: paginationQuerySchema }), controller.list);
+ticketsRouter.get('/stats', controller.stats);
 ticketsRouter.get('/:id', validate({ params: idParamSchema }), controller.getOne);
 
 // Alta: cualquier rol, para cualquier persona (regla de rangos).

@@ -35,6 +35,33 @@ export function findMany() {
   });
 }
 
+export function filtroBusqueda(q?: string) {
+  return {
+    ...activeFilter,
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { username: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  };
+}
+
+export async function findPage(
+  where: Record<string, unknown>,
+  skip: number,
+  take: number,
+  orderBy: Record<string, unknown>,
+) {
+  const [items, total] = await Promise.all([
+    prisma.user.findMany({ where, select: publicSelect, orderBy, skip, take }),
+    prisma.user.count({ where }),
+  ]);
+  return { items, total };
+}
+
 export function findById(id: string) {
   return prisma.user.findFirst({ where: { id, ...activeFilter }, select: publicSelect });
 }

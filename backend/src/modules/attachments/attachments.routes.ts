@@ -8,6 +8,8 @@ import { requireAuth } from '../../middleware/auth.middleware';
 import { uploadRateLimiter } from '../../middleware/rateLimit.middleware';
 import { uploader, MAX_FILE_BYTES, MAX_FILES_PER_REQUEST } from './attachments.storage';
 import { HttpError } from '../../utils/httpError';
+import { assertHayEspacio } from '../../maintenance/disco.service';
+import { asyncHandler } from '../../utils/asyncHandler';
 
 export const attachmentsRouter = Router();
 
@@ -36,9 +38,17 @@ function handleUploadErrors(err: unknown, _req: Request, _res: Response, next: N
   return next(err);
 }
 
+// Freno de disco ANTES de que multer escriba nada: si no hay lugar, ni
+// siquiera se genera un archivo a medias. Lo ya guardado no se toca nunca.
+const controlarEspacio = asyncHandler(async (_req, _res, next) => {
+  await assertHayEspacio();
+  next();
+});
+
 attachmentsRouter.post(
   '/',
   uploadRateLimiter,
+  controlarEspacio,
   uploader.array('files', MAX_FILES_PER_REQUEST),
   handleUploadErrors,
   controller.upload,

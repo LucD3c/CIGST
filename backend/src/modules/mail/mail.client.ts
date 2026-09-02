@@ -225,14 +225,30 @@ const ESPECIALES: Record<string, string> = {
 export async function listarCarpetas(cfg: ConfigCasilla): Promise<Carpeta[]> {
   return conImap(cfg, async (c) => {
     const lista = await c.list();
+    const utiles = lista.filter((f) => !f.flags?.has('\\Noselect'));
+
+    // Antes se pedia el estado de CADA carpeta una despues de la otra: una
+    // casilla de Gmail con veinte etiquetas eran veinte idas y vueltas
+    // encadenadas antes de poder dibujar nada. Ahora van en tandas paralelas,
+    // acotadas para no atropellar al servidor de correo (algunos limitan los
+    // comandos simultaneos por conexion).
+    const LOTE = 5;
+    const estados = new Map<string, { messages?: number; unseen?: number } | null>();
+    for (let i = 0; i < utiles.length; i += LOTE) {
+      const tanda = utiles.slice(i, i + LOTE);
+      const resultados = await Promise.all(
+        tanda.map((f) => c.status(f.path, { messages: true, unseen: true }).catch(() => null)),
+      );
+      tanda.forEach((f, j) => estados.set(f.path, resultados[j] ?? null));
+    }
+
     const salida: Carpeta[] = [];
-    for (const f of lista) {
-      if (f.flags?.has('\\Noselect')) continue;
+    for (const f of utiles) {
       let especial: string | null = null;
       for (const [bandera, nombre] of Object.entries(ESPECIALES)) {
         if (f.specialUse === bandera || (bandera === '\\Inbox' && f.path.toUpperCase() === 'INBOX')) especial = nombre;
       }
-      const estado = await c.status(f.path, { messages: true, unseen: true }).catch(() => null);
+      const estado = estados.get(f.path);
       salida.push({
         path: f.path,
         nombre: f.name || f.path,

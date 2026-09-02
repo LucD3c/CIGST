@@ -209,19 +209,76 @@ reinicio.
 
 Si algo saliera mal, la opción **7** restaura la copia del paso 1.
 
-### Cómo funcionan las copias de seguridad (opciones 6 y 7)
+### Cómo funcionan las copias de seguridad (opciones 6, 7 y 8)
 
-- **Copia (6)**: `pg_dump` completo de la base + `tar` de los adjuntos +
-  copia del `.env`, todo en `backups/AAAA-MM-DD_HH-MM/`. La carpeta
-  `backups/` está en `.gitignore`: contiene datos reales y credenciales, no
-  debe subirse nunca a un repositorio.
-- **Restauración (7)**: detiene el backend (Postgres no permite borrar una
-  base con conexiones abiertas), corta las sesiones remanentes, recrea la
-  base, carga el dump con `ON_ERROR_STOP=1` (si una sola sentencia falla,
-  corta y avisa en vez de dejar una restauración a medias), restaura los
-  adjuntos y vuelve a encender. Al terminar informa **cuántos tickets
+- **Copia (6)**: `pg_dump` completo de la base + `tar` de los adjuntos, en
+  `backups/AAAA-MM-DD_HH-MM/`. La carpeta `backups/` está en `.gitignore`:
+  contiene datos reales, no debe subirse nunca a un repositorio.
+
+  **La configuración va aparte y cifrada.** Antes el `.env` se copiaba tal
+  cual dentro de la misma carpeta, y ese archivo contiene la clave con la que
+  se descifran las contraseñas de las casillas de correo. O sea que la carpeta
+  guardaba a la vez los datos cifrados *y la llave para abrirlos*: quien se
+  llevara el pendrive se llevaba todo. Ahora el instalador pide una contraseña
+  y guarda `configuracion.env.cifrado` (AES-256, 200.000 iteraciones de
+  derivación). Esa contraseña hay que guardarla **en otro lugar** que la
+  copia: si las dos cosas viajan juntas, es como dejar la llave pegada en la
+  puerta.
+
+- **Restauración (7)**: si la copia trae la configuración cifrada, primero
+  ofrece restaurarla (pide la contraseña y conserva el `.env` anterior como
+  `.env.anterior-*`). Esto importa: **si la clave de correo no es la misma con
+  la que se guardaron las casillas, esas credenciales quedan ilegibles** y hay
+  que volver a cargarlas a mano — la plataforma lo dice con un mensaje claro
+  en vez de un error genérico. Después detiene el backend (Postgres no permite
+  borrar una base con conexiones abiertas), corta las sesiones remanentes,
+  recrea la base, carga el dump con `ON_ERROR_STOP=1` (si una sola sentencia
+  falla, corta y avisa en vez de dejar una restauración a medias), restaura
+  los adjuntos y vuelve a encender. Al terminar informa **cuántos tickets
   quedaron en la base**, para que la confirmación sea un hecho verificable y
   no un mensaje de cortesía.
+
+- **Copias automáticas (8)**: programa la copia en el `cron` del sistema,
+  todos los días a las 2 o los domingos a las 2. Una copia que depende de que
+  alguien se acuerde de hacerla no es una copia. Conserva las **últimas 14** y
+  borra las anteriores, para que las copias no terminen llenando el disco que
+  vinieron a proteger.
+
+  La copia automática **no** incluye la configuración: cifrarla necesita que
+  alguien escriba una contraseña, y guardarla sin cifrar sería dejar la llave
+  de las casillas de correo tirada al lado de los datos. El `.env` se guarda a
+  mano una vez, y después solo cuando cambia algo de correo.
+
+  Aviso que el instalador repite a propósito: **esas copias quedan en el mismo
+  disco**. Si el disco se rompe, se rompen con él. Hay que copiarlas cada tanto
+  a otro lado.
+
+### Liberar espacio (opción 9)
+
+Borra **únicamente datos que ya no le sirven a nadie**:
+
+| Qué se borra | Por qué es seguro |
+|---|---|
+| Sesiones vencidas | Son tokens muertos: la plataforma los rechaza igual. Nadie puede volver a usarlos. |
+| Intentos de inicio de sesión viejos | Solo existen para contar fuerza bruta dentro de una ventana de minutos. |
+| Avisos de la campanita ya leídos, de más de 90 días | Un aviso es un puntero a un ticket o mensaje que **sigue existiendo intacto**. |
+| Avisos que nadie leyó en más de un año | Ídem: el ticket al que apuntan sigue estando. |
+| El "visto" de publicaciones dadas de baja | Es el acuse de recibo de algo que ya no se muestra. |
+| Archivos en disco sin ninguna fila que los referencie | Son **inalcanzables** desde la interfaz: no hay forma de abrirlos ni descargarlos. Pasa cuando el proceso se corta entre que se escribe el archivo y se guarda su registro. |
+
+**Lo que NUNCA se toca, ni siquiera dado de baja**: tickets, mensajes,
+conversaciones, imágenes, PDF, planillas, personas, equipos, sectores,
+artículos y bitácora. El borrado de la plataforma es lógico (`deleted_at`) y
+esos datos se conservan para siempre, porque un día alguien puede necesitar
+consultarlos.
+
+Los archivos huérfanos se borran con **doble verificación** (se consulta la
+base otra vez justo antes de borrar) y solo si tienen más de 24 horas, para
+que sea imposible pisar una subida en curso.
+
+La misma rutina corre sola dentro de la plataforma cada 6 horas. La opción del
+menú sirve para dispararla cuando uno quiere y, sobre todo, para **ver en
+pantalla exactamente qué se eliminó**.
 
 ## Guía rápida para probar en una VM limpia
 

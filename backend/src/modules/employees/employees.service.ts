@@ -6,6 +6,7 @@ import * as repo from './employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
 import * as equipmentRepo from '../equipment/equipment.repository';
 import type { CreateEmployeeInput, UpdateEmployeeInput } from './employees.schema';
+import { armarPagina, ordenar, saltear, type PaginationQuery } from '../../utils/pagination';
 
 async function assertReplacementValid(replacementId: string | null | undefined, selfId?: string) {
   if (!replacementId) return;
@@ -29,6 +30,24 @@ function withWorkingStatus<T extends { workStartTime: string | null; workEndTime
 export async function list(q?: string) {
   const employees = await repo.findMany(q);
   return sortByName(employees.map(withWorkingStatus), (e) => e.name);
+}
+
+// El orden ya lo resuelve Postgres con la colacion espaniola: no hace falta
+// reordenar en Node (algo que ademas seria incorrecto sobre una sola pagina).
+const ORDEN: Record<string, (dir: 'asc' | 'desc') => Record<string, unknown>> = {
+  name: (d) => ({ name: d }),
+  code: (d) => ({ code: d }),
+  email: (d) => ({ email: d }),
+  extension: (d) => ({ extension: d }),
+  sectorName: (d) => ({ sector: { name: d } }),
+  status: (d) => ({ status: d }),
+};
+
+export async function listarPagina(query: PaginationQuery) {
+  const where = repo.filtroBusqueda(query.q);
+  const orderBy = ordenar(ORDEN, query.sort, query.dir, { name: 'asc' });
+  const { items, total } = await repo.findPage(where, saltear(query.page, query.pageSize), query.pageSize, orderBy);
+  return armarPagina(items.map(withWorkingStatus), total, query.page, query.pageSize);
 }
 
 // La ficha de persona muestra el equipamiento de su mismo sector (ya no hay

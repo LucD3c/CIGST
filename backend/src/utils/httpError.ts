@@ -25,6 +25,11 @@ export class HttpError extends Error {
     return new HttpError(404, message);
   }
 
+  // 429: se usa para el freno de fuerza bruta que vive en la base de datos.
+  static tooManyRequests(message: string) {
+    return new HttpError(429, message);
+  }
+
   static conflict(message: string) {
     return new HttpError(409, message);
   }

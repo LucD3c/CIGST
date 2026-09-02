@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma';
 import { env } from '../../config/env';
 import { HttpError } from '../../utils/httpError';
 import { generateSessionToken, hashSessionToken } from '../../utils/sessionToken';
+import * as intentos from './auth.intentos';
 
 export type SessionUser = {
   id: string;
@@ -41,6 +42,12 @@ function toSessionUser(user: {
 }
 
 export async function login(username: string, password: string, meta: LoginMeta) {
+  const ip = meta.ipAddress ?? 'desconocida';
+
+  // Freno de fuerza bruta guardado en la base: a diferencia del limitador en
+  // memoria, este sobrevive a un reinicio del contenedor.
+  await intentos.assertPuedeIntentar(username, ip);
+
   const user = await prisma.user.findFirst({
     where: { username, deletedAt: null },
     include: { role: true },
@@ -50,10 +57,19 @@ export async function login(username: string, password: string, meta: LoginMeta)
   // adivinar cuentas validas.
   const genericError = () => HttpError.unauthorized('Usuario o contraseña incorrectos.');
 
-  if (!user || user.status !== 'Activo') throw genericError();
+  if (!user || user.status !== 'Activo') {
+    await intentos.registrarFallo(username, ip);
+    throw genericError();
+  }
 
   const passwordOk = await bcrypt.compare(password, user.passwordHash);
-  if (!passwordOk) throw genericError();
+  if (!passwordOk) {
+    await intentos.registrarFallo(username, ip);
+    throw genericError();
+  }
+
+  // Entro bien: los fallos previos dejan de contar.
+  await intentos.limpiarFallos(username);
 
   const token = generateSessionToken();
   const expiresAt = new Date(Date.now() + ttlMs());

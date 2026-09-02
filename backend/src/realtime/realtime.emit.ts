@@ -147,12 +147,14 @@ export function postPublished(postId: string, resumen: unknown) {
   });
 }
 
-export function postRemoved(postId: string) {
+// Recibe la lista de destinatarios ya calculada por quien da de baja la
+// publicacion: despues del borrado logico ya no se puede reconstruir quienes la
+// veian. Antes se avisaba a TODOS los conectados, lo que se apartaba del
+// modelo de audiencia estricta del resto de los eventos.
+export function postRemoved(postId: string, destinatarios: string[]) {
   safe('feed:post-removed', async () => {
-    // La publicacion ya esta dada de baja: se avisa a todos los conectados y
-    // cada cliente la saca si la tenia en pantalla. No lleva contenido, asi
-    // que no filtra nada a quien no la veia.
-    registry.sendToUsers(registry.connectedUserIds(), 'feed:post-removed', () => ({ postId }));
+    const activos = await audience.onlyActive(destinatarios);
+    registry.sendToUsers(activos, 'feed:post-removed', () => ({ postId }));
   });
 }
 

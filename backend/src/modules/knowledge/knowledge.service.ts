@@ -256,27 +256,28 @@ export async function search(user: SessionUser, q: string) {
   const porTitulo = await repo.searchArticles(spaceIds, q);
   const encontrados = new Map(porTitulo.map((a) => [a.id, a]));
 
-  // Contenido: se traen los articulos de esas bases y se filtra en memoria.
-  // A la escala de una base de conocimiento interna (cientos de articulos,
-  // no millones) alcanza de sobra y evita duplicar el texto en una columna
-  // aparte que habria que mantener sincronizada.
-  const candidatos = await prisma.kbArticle.findMany({
-    where: { deletedAt: null, section: { spaceId: { in: spaceIds } } },
+  // Contenido: lo resuelve la base sobre la columna search_text, que tiene su
+  // propio indice. Antes se traian hasta 500 articulos a memoria y se filtraban
+  // ahi: pasados los 500, los que quedaban afuera no aparecian nunca en ninguna
+  // busqueda y nadie se enteraba. Ahora no hay ningun tope silencioso.
+  const porContenido = await prisma.kbArticle.findMany({
+    where: {
+      deletedAt: null,
+      section: { spaceId: { in: spaceIds } },
+      searchText: { contains: q.toLowerCase() },
+    },
     select: {
       id: true,
       title: true,
       updatedAt: true,
-      blocks: { orderBy: { position: 'asc' }, select: { kind: true, data: true } },
       section: { select: { id: true, name: true, spaceId: true, space: { select: { name: true } } } },
     },
-    take: 500,
+    orderBy: { updatedAt: 'desc' },
+    take: 40,
   });
 
-  const termino = q.toLowerCase();
-  for (const a of candidatos) {
-    if (encontrados.has(a.id)) continue;
-    const texto = plainTextOf(a.blocks as unknown as ContentBlock[]).toLowerCase();
-    if (texto.includes(termino)) encontrados.set(a.id, a as never);
+  for (const a of porContenido) {
+    if (!encontrados.has(a.id)) encontrados.set(a.id, a as never);
   }
 
   return [...encontrados.values()].slice(0, 40).map((a) => ({

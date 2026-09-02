@@ -179,3 +179,81 @@ textarea.blk-in{resize:vertical;line-height:1.5}
   .mail-fila{grid-template-columns:minmax(0,1fr) 70px}
   .mail-de{display:none}
 }
+
+/* ==========================================================================
+   Agregados: paginación, navegación en pantallas chicas y dirección de red.
+   Van al final a propósito: las reglas de igual peso que llegan después son
+   las que mandan, así que desde acá se corrigen los comportamientos móviles
+   definidos más arriba sin tener que reescribir aquella línea.
+   ========================================================================== */
+
+/* --- Paginación --- */
+.pager{display:flex;align-items:center;justify-content:center;gap:14px;padding:14px 4px 2px}
+.pager-info{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.pager .btn[disabled]{opacity:.4;cursor:default}
+.pager .btn[disabled]:hover{filter:none}
+
+/* --- Ayuda debajo de un campo de formulario --- */
+.field-help{display:block;color:var(--muted);font-size:11.5px;line-height:1.45;margin-top:2px}
+
+/* --- Dirección de red propia --- */
+.ip-box{display:flex;align-items:center;gap:8px}
+.ip-btn{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:6px 10px;font:600 11.5px 'DM Sans';cursor:pointer;white-space:nowrap}
+.ip-btn:hover{color:var(--text);border-color:var(--blue)}
+.ip-btn[disabled]{opacity:.5;cursor:default}
+.ip-value{font:600 12px 'JetBrains Mono';color:#93bfe9;background:#15263a;border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer;white-space:nowrap}
+.ip-value:hover{border-color:var(--blue)}
+
+/* --- Botón del menú: sólo aparece cuando la barra lateral no entra --- */
+.nav-toggle{display:none;background:transparent;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 11px;font-size:16px;line-height:1;cursor:pointer}
+.nav-toggle:hover{background:var(--surface-2)}
+.nav-backdrop{display:none}
+
+@media(max-width:760px){
+  /* La barra lateral pasa a ser un cajón que entra desde el costado. Antes
+     simplemente se ocultaba y no quedaba ninguna forma de navegar: se entraba
+     al teléfono y no se podía salir de la pantalla en la que uno caía. */
+  .nav-toggle{display:block}
+  .sidebar{
+    display:flex;position:fixed;top:0;left:0;bottom:0;height:100vh;
+    width:min(284px,84vw);z-index:60;overflow-y:auto;
+    transform:translateX(-100%);transition:transform .22s ease;
+    box-shadow:none;
+  }
+  .layout.nav-abierto .sidebar{transform:translateX(0);box-shadow:var(--shadow)}
+  .layout.nav-abierto .nav-backdrop{display:block;position:fixed;inset:0;background:#02060a99;z-index:55}
+
+  /* Las columnas ya no se esconden. Ocultarlas por posición hacía que cada
+     tabla perdiera una columna distinta y arbitraria: en Personas se perdía el
+     interno, en Equipos el sector. Ahora la tabla se desplaza de costado y no
+     se pierde ningún dato. */
+  .data-table th:nth-child(4),.data-table td:nth-child(4),
+  .data-table th:nth-child(5),.data-table td:nth-child(5){display:table-cell}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .data-table{min-width:640px}
+
+  /* La quinta métrica del tablero también vuelve: entra bien en dos columnas. */
+  .metric:last-child{display:block}
+
+  .topbar{gap:10px}
+  .ip-btn{padding:6px 8px}
+  .list-toolbar{flex-wrap:wrap}
+  .list-count{margin-left:0}
+  .pager{gap:10px}
+}
+
+/* En pantallas muy chicas la dirección de red ocuparía toda la barra: se
+   muestra debajo, en su propia línea. */
+@media(max-width:520px){
+  .ip-box{flex-wrap:wrap;justify-content:flex-end}
+  .search{display:none}
+}
+
+/* Aviso de una opción que amplía lo que la plataforma puede alcanzar en la red:
+   se distingue del resto de las ayudas para que no pase inadvertido. */
+.blk-ayuda.aviso-riesgo{border-left:2px solid var(--yellow);background:var(--yellow-d);color:#f0d9a8;padding:10px 12px;border-radius:0 6px 6px 0;line-height:1.5}
+.blk-ayuda.aviso-riesgo strong{color:#ffe6b0}
+
+/* Los campos del formulario se alinean arriba: si uno lleva una línea de ayuda
+   debajo, su vecino de la derecha no tiene por qué bajar con él. */
+.form-grid{align-items:start}

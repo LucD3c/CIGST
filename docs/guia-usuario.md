@@ -76,6 +76,50 @@ del ticket (Nuevo → … → Cerrado).
 alfabéticamente con el mismo criterio, así no hay que buscar a alguien en
 una lista desordenada.
 
+### Listas largas: el paginador
+
+Cuando una lista supera las 50 filas aparece abajo una barra con **‹ Anterior**
+y **Siguiente ›**, y en el medio dice en qué parte del total estás
+(*"51–100 de 3.482"*).
+
+Lo importante es que **el orden y la búsqueda trabajan sobre el total, no
+sobre la página que estás viendo**. Si ordenás por nombre, la primera página
+trae los primeros del abecedario entre *todos* los registros; si buscás
+"impresora", encuentra todas las que haya, estén en la página que estén. Al
+cambiar el orden o escribir en el buscador, la lista vuelve sola a la
+primera página.
+
+Esto es lo que permite que la plataforma siga siendo rápida con miles de
+tickets acumulados: el servidor manda de a una página en vez de la tabla
+entera.
+
+![Paginador de una lista](img/paginador.png)
+
+---
+
+## Ver la dirección de red de tu computadora (botón "Mi IP")
+
+Arriba a la derecha, al lado del botón **Salir**, hay un botón que dice
+**Mi IP**.
+
+Sirve para lo de siempre: llamás a sistemas por un problema y lo primero que
+te preguntan es "¿qué IP tenés?". En vez de explicarte por teléfono cómo
+abrir una consola, apretás ese botón y ahí está. Al técnico además le sirve
+para conectarse a tu máquina por VNC y ver el problema con sus propios ojos.
+
+- **Está oculta por defecto, a propósito.** Una dirección interna es
+  información de infraestructura: no tiene por qué estar a la vista mientras
+  compartís pantalla en una reunión o mientras pasa gente por detrás de tu
+  escritorio. Se muestra solo cuando la pedís, y el mismo botón la vuelve a
+  ocultar.
+- **Cada persona ve únicamente la suya.** No hay forma de consultar la
+  dirección de otro: la plataforma la deduce de tu propia conexión, no de
+  una lista.
+- **Un clic sobre la dirección la copia**, así la pegás directo en el chat
+  o en el visor de VNC.
+
+![Botón Mi IP en la barra superior](img/mi-ip.png)
+
 ---
 
 ## Novedades: el tablero de la empresa
@@ -338,8 +382,31 @@ Cada uno **vive en un sector**, que dice dónde está ubicado. Ojo: eso es
 independiente del *sector a requerir* de un ticket — que una impresora esté
 en Depósito no significa que el arreglo se le pida a Depósito.
 
-**Editar es del Administrador**: cada cambio de nombre, sector o estado
-queda registrado automáticamente en el panel **Cambios**, con el valor
+### El código: automático o tuyo
+
+Cada equipo o espacio tiene un **código** que lo identifica. Al crearlo, el
+campo **Código** puede quedar vacío o completarse:
+
+- **Si lo dejás vacío**, la plataforma le pone uno correlativo: `EQ-001`,
+  `EQ-002`, y así.
+- **Si escribís uno**, se respeta exactamente como lo escribiste. Esto es
+  para las empresas que ya tienen sus **etiquetas de inventario pegadas en
+  las máquinas**: si la impresora de recepción dice `IMP-RECEP-02`, cargala
+  con ese código y no con otro. Obligar a convivir con dos numeraciones
+  distintas es pedir que alguien se equivoque.
+
+El código **se puede cambiar después**, desde *Editar*. Admite letras,
+números, espacios y los signos `.` `_` `-` `/`, hasta 40 caracteres. Si el
+código que elegís ya lo tiene otro equipo, la plataforma te avisa cuál es y
+te pide otro — nunca quedan dos con el mismo.
+
+El cambio de código, como cualquier otra edición, queda anotado en el panel
+**Cambios** con el valor anterior y el nuevo.
+
+![Alta de un equipo o espacio con código propio](img/equipo-codigo.png)
+
+**Editar es del Administrador**: cada cambio de nombre, código, sector o
+estado queda registrado automáticamente en el panel **Cambios**, con el valor
 anterior y el nuevo. No conviene crear uno nuevo al reemplazar un equipo: se
 edita el existente y el historial guarda lo que había antes. El botón
 **Eliminar** está dentro de *Editar*; los tickets asociados no se borran.
@@ -479,3 +546,72 @@ nombre para no perder el historial.
 
 **No encuentro el botón Eliminar.** Está adentro de **Editar**, y solo lo ve
 un Administrador. Tu propia cuenta de usuario no ofrece eliminarse.
+
+---
+
+## Usar la plataforma desde el celular
+
+La plataforma se adapta a pantallas chicas. En un teléfono la barra lateral
+no entra al costado, así que se convierte en un **cajón** que se abre con el
+botón ☰ de arriba a la izquierda.
+
+- Tocás ☰ y aparecen todas las secciones.
+- Al elegir una, el cajón se cierra solo.
+- También se cierra tocando fuera o con la tecla Escape.
+
+Las tablas **no esconden columnas**: se desplazan de costado con el dedo, así
+que no se pierde ningún dato por estar mirando desde el teléfono.
+
+![Menú en el celular](img/movil-menu.png)
+
+---
+
+## Si el almacenamiento se llena
+
+La plataforma controla cuánto espacio ocupan los archivos adjuntos. Cuando se
+acerca al límite empieza a avisar en el registro, y si lo alcanza deja de
+aceptar **archivos nuevos** con un mensaje que lo explica.
+
+Lo importante: **no se pierde nada de lo que ya estaba**. Todos los archivos
+anteriores siguen ahí y se pueden abrir y descargar igual; lo único que no se
+puede hacer es subir más hasta liberar lugar.
+
+Para liberar espacio, un administrador tiene la opción **9) Liberar espacio**
+del instalador, que borra únicamente datos sin uso (ver el manual de
+instaladores). Si aun así hace falta más lugar, se amplía el límite en el
+archivo `.env` con `UPLOADS_MAX_GB`.
+
+### Por qué las imágenes ocupan poco
+
+Cada imagen que entra a la plataforma se **comprime dos veces**: una en tu
+navegador, antes de subirla (así viaja poco por la red), y otra en el
+servidor, para que también entren comprimidas las que lleguen por otro medio.
+Se reduce a 1600 píxeles de lado máximo y se guarda en formato WEBP.
+
+En la práctica una captura de pantalla típica pasa de 350 KB a 85 KB: ocupa
+**cuatro veces menos** sin que se note la diferencia al mirarla. Los PDF, las
+planillas y los GIF animados **no se tocan**: quedan exactamente como los
+subiste.
+
+---
+
+## Contraseñas
+
+Al crear un usuario o cambiarle la contraseña, la plataforma pide que sea
+razonablemente fuerte:
+
+- **Al menos 10 caracteres.**
+- Que combine **al menos tres** de estos cuatro tipos: minúsculas,
+  mayúsculas, números y símbolos.
+- Sin secuencias tipo `1234` o `abcd`, sin el mismo carácter cuatro veces
+  seguidas, y que no contenga el nombre de usuario.
+- No se aceptan las contraseñas más usadas del mundo (`password`,
+  `12345678` y compañía): son las primeras que prueba cualquiera.
+
+No hace falta inventar algo impronunciable. Una frase corta con un número y
+un guion cumple de sobra y se recuerda sola: `Roble-Verde-72`.
+
+Si alguien se equivoca **8 veces seguidas** con la misma cuenta, esa cuenta
+queda bloqueada 15 minutos. Es lo que impide que alguien pruebe contraseñas
+una tras otra. Un administrador puede restablecer la contraseña desde el
+Panel administrador sin esperar ese rato.

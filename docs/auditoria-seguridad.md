@@ -2,11 +2,16 @@
 
 > Este documento no describe intenciones: describe **controles que se probaron
 > contra la plataforma corriendo**. Cada línea de las tablas corresponde a una
-> comprobación automatizada que se ejecuta antes de cada entrega. La batería
-> completa son **46 controles** y hoy pasan los 46.
+> comprobación ejecutada, no a una buena intención.
 >
-> Última ejecución: sobre la versión con Correo, Feed, Bases de conocimiento,
-> tiempo real por WebSocket y compresión de imágenes.
+> **104 controles** en total: 79 de las rondas anteriores (secciones A a J) y
+> **25 nuevos** (sección K), verificados en la ronda de correcciones sobre la
+> plataforma en funcionamiento.
+>
+> Última ejecución: sobre la versión con listados paginados, retención de datos
+> sin uso, control de espacio en disco, compresión de imágenes en el servidor,
+> política de contraseñas y bloqueo de fuerza bruta persistente en base de
+> datos.
 
 ---
 
@@ -200,6 +205,40 @@ afuera al proveedor, como cualquier programa de correo de escritorio.
 
 ---
 
+## K · Controles agregados en la ronda de correcciones
+
+Todos verificados contra la plataforma en funcionamiento, no sobre el papel.
+
+| # | Qué se verificó | Resultado |
+|---|---|---|
+| K1 | La plataforma **se niega a arrancar** si la contraseña de la base sigue siendo la de ejemplo del repositorio | Corta el arranque con un mensaje que dice exactamente qué cambiar |
+| K2 | Aviso al arrancar cuando `COOKIE_SECURE=false` (credenciales sin cifrar en la red) | Queda registrado en el log, con el enlace a la guía de HTTPS |
+| K3 | Contraseña de usuario: mínimo 10, tres familias de caracteres, sin secuencias, sin repeticiones, sin el nombre de usuario | 7 casos probados: `12345678`, `password`, `aaaaaaaaaaaa`, `abcdefghij`, `todominus10` y la que contiene el usuario, todas rechazadas; una razonable aceptada |
+| K4 | **Bloqueo por cuenta** tras 8 contraseñas erradas, durante 15 minutos | Al 9º intento devuelve 429 con el tiempo de espera |
+| K5 | Ese bloqueo **sobrevive al reinicio** del contenedor | Se reinició la plataforma y el bloqueo siguió activo (antes bastaba reiniciar para poner el contador en cero) |
+| K6 | Los ingresos **correctos** ya no consumen el presupuesto del limitador por IP | 70 ingresos simultáneos desde la misma dirección: 70/70 exitosos |
+| K7 | Los 429 del propio limitador no se cuentan como fallos | Se eliminó la realimentación que estiraba el bloqueo indefinidamente |
+| K8 | Las páginas de los listados **no se pueden agrandar desde el cliente** | `pageSize=100000` devuelve como mucho 200 filas |
+| K9 | El cliente **no puede ordenar por una columna arbitraria** | Solo se aceptan las columnas de un mapa explícito por módulo; lo demás cae al orden por defecto |
+| K10 | La búsqueda de artículos **no encuentra por el valor de un campo oculto** | Se guardó una credencial compartida en un campo oculto y se la buscó: no aparece. El texto buscable se arma con `plainTextOf()`, que excluye los ocultos |
+| K11 | El texto buscable se **actualiza al editar** un artículo | Encuentra por el contenido nuevo y deja de encontrar por el viejo |
+| K12 | Los filtros por persona/equipo **se suman** a la visibilidad por rol, no la reemplazan | Un usuario de rango User que pide los tickets de otra persona sigue viendo solo los suyos |
+| K13 | La compresión de imágenes actúa aunque se **saltee el navegador** | Subida directa por API de un PNG de 2400×1600 y 1,25 MB: guardado en WEBP de 694 KB, redimensionado |
+| K14 | Los PDF y planillas **no se tocan** | Mismo tipo y mismo tamaño byte a byte |
+| K15 | Con el almacenamiento lleno, **lo ya guardado se sigue leyendo y descargando** | Lectura y descargas OK; solo se rechazan subidas nuevas, con mensaje que aclara que no se perdió nada |
+| K16 | `/api/health` **consulta la base de datos de verdad** | Devuelve `db: ok`; antes devolvía `{status:'ok'}` fijo aunque Postgres estuviera caído |
+| K17 | Los códigos correlativos no se repiten con altas simultáneas | 8 altas en paralelo: 8 códigos distintos, ningún error |
+| K18 | Un código de equipo escrito a mano **no puede pisar** a otro | Devuelve 409 diciendo qué equipo lo tiene |
+| K19 | El código de equipo **no admite caracteres peligrosos** | `PC<script>` rechazado por el esquema |
+| K20 | `/auth/mi-ip` **no recibe ningún parámetro** | Es imposible pedir la dirección de otra persona: no hay forma de nombrarla |
+| K21 | El evento de baja de una publicación ya **no se emite a todos los conectados** | La audiencia se calcula antes del borrado y se envía solo a quienes la veían |
+| K22 | La opción de red interna del correo pide **confirmación explícita** | Diálogo que explica qué habilita y cuándo corresponde |
+| K23 | La limpieza de datos sin uso **no borra nada recuperable** | Se ejecutó sobre la base real: eliminó 140 sesiones vencidas y 105 acuses de publicaciones dadas de baja; tickets, mensajes, adjuntos y artículos intactos |
+| K24 | Los archivos huérfanos se borran con **doble verificación** y 24 h de margen | Imposible pisar una subida en curso |
+| K25 | Prueba de carga con **70 personas simultáneas** | 70/70 sesiones, 70/70 conexiones de tiempo real, 2.100 peticiones, **cero errores**, p95 de 853 ms |
+
+---
+
 ## Lo que NO cubre esta auditoría
 
 Ser honesto sobre los límites es parte de la seguridad:
@@ -213,9 +252,13 @@ Ser honesto sobre los límites es parte de la seguridad:
   mente.
 - **Quien tiene acceso legítimo.** Un Administrador puede hacer daño; para eso
   está el historial de cambios, no la prevención.
-- **Las copias de seguridad.** Son volcados en texto plano. Con el `.env` al
-  lado, permiten descifrar las credenciales de correo. Hay que guardarlas con
-  el mismo cuidado que el servidor.
+- **El contenido de las copias de seguridad.** El volcado de la base sigue
+  siendo texto plano (es lo que permite restaurarlo en cualquier Postgres). Lo
+  que **sí se corrigió** es que ya no viaja el `.env` sin cifrar al lado: la
+  configuración se guarda aparte, cifrada con AES-256 y una contraseña que
+  elige la persona, así la copia deja de contener a la vez los datos cifrados
+  y la llave para abrirlos. Aun así, el volcado tiene los datos reales de la
+  empresa: hay que guardarlo con el mismo cuidado que el servidor.
 - **Auditorías externas.** Esto lo escribió y lo probó quien construyó la
   plataforma. Una revisión independiente vería cosas distintas.
 
@@ -223,6 +266,8 @@ Ser honesto sobre los límites es parte de la seguridad:
 
 ## Cómo se vuelve a correr
 
-La batería está automatizada y se ejecuta antes de cada entrega, junto con el
-resto de las pruebas. No es un documento que se escribe una vez: es una salida
-que se regenera.
+Las suites viven en [`pruebas/`](../pruebas/LEEME.md) y corren contra la
+plataforma en funcionamiento, dentro de contenedores descartables — no hace
+falta instalar nada en la máquina. Ahí está el comando exacto de cada una.
+
+No es un documento que se escribe una vez: es una salida que se regenera.

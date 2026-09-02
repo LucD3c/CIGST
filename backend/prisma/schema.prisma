@@ -182,6 +182,7 @@ model Employee {
 
   @@index([replacementId])
   @@index([sectorId])
+  @@index([deletedAt, name])
   @@map("employees")
 }
 
@@ -205,6 +206,7 @@ model Equipment {
   logbookEntries LogbookEntry[]
 
   @@index([sectorId])
+  @@index([deletedAt, model])
   @@map("equipment")
 }
 
@@ -248,6 +250,7 @@ model Ticket {
   @@index([technicianId])
   @@index([createdById])
   @@index([status])
+  @@index([deletedAt, createdAt])
   @@map("tickets")
 }
 
@@ -400,6 +403,7 @@ model LogbookEntry {
   @@index([authorId])
   @@index([relatedTicketId])
   @@index([relatedEquipmentId])
+  @@index([deletedAt, occurredAt])
   @@map("logbook_entries")
 }
 
@@ -568,6 +572,12 @@ model KbArticle {
   id          String    @id @default(uuid())
   sectionId   String    @map("section_id")
   title       String
+  // Texto plano del articulo, para poder buscar dentro del contenido con un
+  // indice en vez de traer los articulos a memoria y filtrarlos ahi. Lo escribe
+  // el backend en cada guardado usando plainTextOf(), que EXCLUYE los campos
+  // marcados como ocultos: asi una contrasena compartida guardada en un
+  // articulo nunca se puede encontrar buscandola.
+  searchText  String?   @map("search_text")
   position    Int       @default(0)
   updatedById String?   @map("updated_by_id")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -581,6 +591,7 @@ model KbArticle {
   attachments Attachment[]
 
   @@index([sectionId, position])
+  @@index([deletedAt, updatedAt])
   @@map("kb_articles")
 }
 
@@ -716,4 +727,30 @@ model MailAccountAccess {
   @@index([userId])
   @@index([sectorId])
   @@map("mail_account_access")
+}
+
+// Contador atomico para los codigos legibles (TK-001, EMP-001, EQ-001...).
+// Antes se hacia count()+1, que con dos altas simultaneas generaba el mismo
+// codigo y la segunda moria contra el indice unico. Ahora el numero lo entrega
+// Postgres con un UPDATE ... RETURNING, que es atomico por definicion.
+model Counter {
+  prefix String @id
+  value  Int    @default(0)
+
+  @@map("counters")
+}
+
+// Intentos fallidos de inicio de sesion. Van a la base (no a memoria) para que
+// el bloqueo por fuerza bruta sobreviva a un reinicio del contenedor: antes
+// alcanzaba con reiniciar la plataforma para que el contador volviera a cero.
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  username  String
+  ipAddress String   @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([username, createdAt])
+  @@index([ipAddress, createdAt])
+  @@index([createdAt])
+  @@map("login_attempts")
 }

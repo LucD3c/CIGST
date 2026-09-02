@@ -33,10 +33,38 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # connection_limit: tamanio del pool de conexiones a Postgres. Sin este
+      # parametro Prisma usa cpus*2+1 (5 en una VM de 2 nucleos), que con
+      # decenas de personas trabajando a la vez se agota y deja pedidos
+      # esperando. pool_timeout da margen para esperar un lugar libre en
+      # vez de fallar en el acto.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?connection_limit=${DB_POOL:-30}&pool_timeout=20
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
-    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    # Si una migracion falla, la plataforma NO arranca (es lo correcto: mejor
+    # no levantar que levantar con la base a medias). Lo que si cambia es el
+    # mensaje: antes se veia un error crudo de Prisma y nadie sabia que hacer.
+    command: >
+      sh -c "npx prisma migrate deploy && npx prisma db seed || {
+        echo '';
+        echo '===============================================================';
+        echo ' CIGST no pudo actualizar la base de datos.';
+        echo '';
+        echo ' La plataforma NO va a arrancar, y eso es a proposito: es mas';
+        echo ' seguro no levantar que levantar con la base a medias.';
+        echo '';
+        echo ' TUS DATOS ESTAN INTACTOS. No se borro ni se modifico nada.';
+        echo '';
+        echo ' Que hacer:';
+        echo '  1. Mira el detalle del error mas arriba de este mensaje.';
+        echo '  2. Verifica que el disco no este lleno (df -h).';
+        echo '  3. Si venis de una version vieja, hace una copia de seguridad';
+        echo '     (opcion 6 del instalador) antes de volver a intentar.';
+        echo '  4. Volve a ejecutar la opcion 1 del instalador.';
+        echo '===============================================================';
+        echo '';
+        exit 1;
+      }"
     depends_on:
       db:
         condition: service_healthy
@@ -72,14 +100,32 @@ services:
       PORT: 3000
       # Zona horaria para los historiales de cambios y timestamps legibles.
       TZ: ${TZ:-America/Argentina/Buenos_Aires}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # connection_limit: tamanio del pool de conexiones a Postgres. Sin este
+      # parametro Prisma usa cpus*2+1 (5 en una VM de 2 nucleos), que con
+      # decenas de personas trabajando a la vez se agota y deja pedidos
+      # esperando. pool_timeout da margen para esperar un lugar libre en
+      # vez de fallar en el acto.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?connection_limit=${DB_POOL:-30}&pool_timeout=20
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS}
       COOKIE_SECURE: ${COOKIE_SECURE}
       TRUST_PROXY: ${TRUST_PROXY}
       LOG_LEVEL: ${LOG_LEVEL}
+      # Retencion de datos sin uso y control de disco (ver .env.example).
+      RETENTION_NOTIF_LEIDAS_DIAS: ${RETENTION_NOTIF_LEIDAS_DIAS:-90}
+      RETENTION_NOTIF_SIN_LEER_DIAS: ${RETENTION_NOTIF_SIN_LEER_DIAS:-365}
+      UPLOADS_MAX_GB: ${UPLOADS_MAX_GB:-20}
+      UPLOADS_AVISO_PORCENTAJE: ${UPLOADS_AVISO_PORCENTAJE:-80}
+      DISCO_MINIMO_LIBRE_MB: ${DISCO_MINIMO_LIBRE_MB:-1024}
+      IMAGEN_MAX_LADO: ${IMAGEN_MAX_LADO:-1600}
+      IMAGEN_CALIDAD: ${IMAGEN_CALIDAD:-0.82}
     ports:
-      - '${APP_PORT:-3000}:3000'
+      # APP_BIND define en que direccion escucha. Por defecto 0.0.0.0 (toda
+      # la red local, que es el uso normal). Si la plataforma va detras de
+      # nginx conviene 127.0.0.1 para que nadie pueda saltearse el proxy;
+      # si el servidor tiene varias placas de red, se pone la IP de la
+      # placa que corresponda.
+      - '${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000'
     depends_on:
       db:
         condition: service_healthy

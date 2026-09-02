@@ -48,7 +48,7 @@ function handleApiError(err) {
 }
 
 /* ---------- Estado ---------- */
-let store = { employees: [], equipment: [], tickets: [], logbook: [], users: [], technicians: [], sectors: [], schedules: [], categories: [], activity: [] };
+let store = { employees: [], equipment: [], tickets: [], logbook: [], users: [], technicians: [], sectors: [], schedules: [], categories: [], activity: [], stats: null, opcionesPersonas: [], opcionesEquipos: [] };
 let currentUser = null;
 let session = false;
 let currentView = 'dashboard';
@@ -288,7 +288,7 @@ function onRealtimeTicket(ticket){
   if(idx>=0)store.tickets[idx]={...store.tickets[idx],...normalizado};
   else store.tickets.unshift(normalizado);
   if(['tickets','dashboard','employee-portal'].includes(currentView)){
-    if(document.getElementById('tickets-table'))refreshList('tickets');
+    if(document.getElementById('tickets-table'))void refreshList('tickets');
     else render();
   }
 }
@@ -368,29 +368,48 @@ function applySessionUser(user) {
   startRealtime();
   currentView = 'feed';
 }
-async function loadStaffData() {
-  const [employeesRes, equipmentRes, ticketsRes, techniciansRes, sectorsRes, schedulesRes, options] = await Promise.all([
-    api('/employees'), api('/equipment'), api('/tickets'), api('/users/technicians'), api('/sectors'), api('/schedules'),
-    api('/tickets/form-options'),
+// Catalogos chicos que necesitan los formularios (tecnicos, sectores, turnos,
+// categorias). No crecen con el uso y se piden una sola vez por sesion, no en
+// cada cambio de pantalla como antes.
+let catalogosCargados = false;
+async function loadCatalogos(forzar = false) {
+  if (catalogosCargados && !forzar) return;
+  const [techniciansRes, sectorsRes, schedulesRes, options] = await Promise.all([
+    api('/users/technicians'), api('/sectors'), api('/schedules'), api('/tickets/form-options'),
   ]);
-  store.employees = employeesRes.employees.map(normalizeEmployee);
-  store.equipment = equipmentRes.equipment.map(normalizeEquipment);
-  store.tickets = ticketsRes.tickets.map(normalizeTicket);
   store.technicians = techniciansRes.technicians;
   store.sectors = sectorsRes.sectors.map(normalizeSector);
   store.schedules = schedulesRes.schedules.map(normalizeSchedule);
   store.categories = options.categories || [];
-  if (isAdmin()) {
-    const { entries } = await api('/logbook');
-    store.logbook = entries.map(normalizeLogbookEntry);
-  } else {
-    store.logbook = [];
-  }
-  store.activity = deriveActivity(store.tickets, store.logbook);
+  store.opcionesPersonas = (options.people || []).map(p => ({ id: p.id, name: p.name, sectorId: p.sectorId || '', sectorName: p.sectorName || '' }));
+  store.opcionesEquipos = (options.equipment || []).map(e => ({ id: e.id, model: e.model || '', type: e.type || '', sectorId: e.sectorId || '', sectorName: e.sectorName || '' }));
+  catalogosCargados = true;
 }
+
+// Datos de la pantalla actual. Antes esta funcion traia TODO -personas,
+// equipos, tickets, bitacora, catalogos- en cada cambio de vista, aunque la
+// pantalla usara una sola de esas listas. Ahora pide los catalogos (una vez) y
+// solo la pagina del listado que se esta mirando.
+async function loadStaffData(vista) {
+  await loadCatalogos();
+
+  const listaDeLaVista = { tickets:'tickets', employees:'employees', equipment:'equipment', logbook:'logbook', users:'users' }[vista];
+  if (listaDeLaVista && !(listaDeLaVista === 'logbook' && !isAdmin())) {
+    await cargarPagina(listaDeLaVista);
+  }
+
+  // El tablero necesita los numeros (que los calcula la base) y una pagina de
+  // tickets recientes para el panel de "requieren atencion".
+  if (vista === 'dashboard' || vista === undefined) {
+    const [stats] = await Promise.all([api('/tickets/stats'), cargarPagina('tickets')]);
+    store.stats = stats.estadisticas;
+    if (isAdmin()) await cargarPagina('logbook');
+    store.activity = deriveActivity(store.tickets, store.logbook);
+  }
+}
+
 async function loadUsers() {
-  const { users } = await api('/users');
-  store.users = users.map(normalizeUser);
+  await cargarPagina('users');
 }
 async function loadEmployeeData() {
   // El rango User no puede listar /employees ni /equipment completos, pero
@@ -401,6 +420,8 @@ async function loadEmployeeData() {
   store.tickets = ticketsRes.tickets.map(normalizeTicket);
   store.employees = options.people.map(p => ({ id: p.id, code: '', name: p.name, document: '—', email: '', phone: '', extension: '', sectorId: p.sectorId || '', sectorName: p.sectorName || '', position: '', status: 'Activo', workShift: '', schedule: '', replacement: '', replacementInfo: null, notes: '', changeLog: '', sectorEquipment: [] }));
   store.equipment = options.equipment.map(e => ({ id: e.id, code: '', type: e.type || '', model: e.model || '', status: 'Activo', sectorId: e.sectorId || '', sectorName: e.sectorName || '', changeLog: '' }));
+  store.opcionesPersonas = options.people.map(p => ({ id: p.id, name: p.name, sectorId: p.sectorId || '', sectorName: p.sectorName || '' }));
+  store.opcionesEquipos = options.equipment.map(e => ({ id: e.id, model: e.model || '', type: e.type || '', sectorId: e.sectorId || '', sectorName: e.sectorName || '' }));
   store.sectors = options.sectors.map(normalizeSector);
   store.schedules = options.schedules.map(normalizeSchedule);
 }
@@ -620,8 +641,28 @@ function attachmentsHtml(list,compact=false){
 
 /* ---------- Utilidades de presentacion ---------- */
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const employee = id => store.employees.find(x => x.id === id);
-const equipment = id => store.equipment.find(x => x.id === id);
+// Buscan primero en la pagina que se tiene a mano y, si no esta, en la lista
+// completa de opciones (que viene entera de /tickets/form-options). Antes solo
+// miraban el listado; ahora ese listado esta paginado, y quedarse solo con el
+// haria que un nombre apareciera como "Sin persona" nada mas que porque su fila
+// cayo en otra pagina.
+const employee = id => store.employees.find(x => x.id === id) || store.opcionesPersonas.find(x => x.id === id);
+const equipment = id => store.equipment.find(x => x.id === id) || store.opcionesEquipos.find(x => x.id === id);
+
+// Trae un ticket por id: de la pagina cargada si esta, y si no del servidor.
+// Hace falta porque a un ticket se llega tambien desde un aviso, desde el
+// buscador o desde la ficha de una persona, y en esos casos puede no estar en
+// la pagina que se tiene abierta.
+async function traerTicket(id){
+  const enPagina=store.tickets.find(t=>t.id===id);
+  if(enPagina)return enPagina;
+  try{
+    const {ticket}=await api(`/tickets/${id}`);
+    return normalizeTicket(ticket);
+  }catch{
+    return null;
+  }
+}
 const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
 const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['mail','✉','Correo'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
@@ -636,11 +677,107 @@ const isStaff = () => currentUser?.role !== 'User';
 
 /* ---------- Vistas ---------- */
 function loginView(){app.innerHTML=`<main class="login-page"><section class="login-card"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span></div><h1>Centro de Soporte</h1><p>Ingresá con las credenciales proporcionadas por Sistemas.</p><form id="login-form"><div class="field"><label for="username">Usuario</label><input id="username" name="username" required autocomplete="username" autofocus /></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" required autocomplete="current-password" /></div><div class="login-actions" style="justify-content:flex-end"><button class="btn btn-primary" type="submit">Iniciar sesión</button></div></form></section></main>`;$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const submitBtn=e.currentTarget.querySelector('button[type=submit]');submitBtn.disabled=true;try{const {user}=await api('/auth/login',{method:'POST',body:{username:form.get('username'),password:form.get('password')}});applySessionUser(user);await render();}catch(err){toast(apiErrorMessage(err));}finally{submitBtn.disabled=false;}});}
-function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const inicio=byId(['feed']);const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors','knowledge']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat','mail']);const staffNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${nav(['knowledge','▦','Bases de conocimiento'])}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar">${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions"><span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{currentView=el.dataset.view;currentDetailId=null;render();});$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();feedPosts=[];feedComentarios.clear();feedAbiertos.clear();kbSpaces=[];kbSpace=null;kbArticle=null;mailEstado=null;mailCuentas=[];mailCuentaActiva=null;mailCarpetas=[];mailMensajes=[];mailAbierto=null;chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
+
+/* ---------- Menu en pantallas chicas ----------
+En el celular la barra lateral no entra al costado, asi que se esconde. Antes
+se escondia y listo: no quedaba NINGUNA forma de navegar, uno entraba y se
+quedaba encerrado en la pantalla en la que habia caido. Ahora se convierte en
+un cajon que se abre con el boton de las tres rayas y se cierra al elegir una
+opcion, al tocar afuera o con la tecla Escape. */
+function abrirNavMovil(){
+  document.getElementById('layout')?.classList.add('nav-abierto');
+  document.getElementById('nav-toggle')?.setAttribute('aria-expanded','true');
+}
+function cerrarNavMovil(){
+  document.getElementById('layout')?.classList.remove('nav-abierto');
+  document.getElementById('nav-toggle')?.setAttribute('aria-expanded','false');
+}
+function wireNavMovil(){
+  const boton=document.getElementById('nav-toggle');
+  const telon=document.getElementById('nav-backdrop');
+  if(boton)boton.onclick=()=>{
+    const abierto=document.getElementById('layout')?.classList.contains('nav-abierto');
+    if(abierto)cerrarNavMovil();else abrirNavMovil();
+  };
+  if(telon)telon.onclick=cerrarNavMovil;
+}
+
+/* ---------- Mi dirección de red ----------
+Para que sirve: cuando alguien llama a sistemas, lo primero que le preguntan es
+"que IP tenes". Tenerla a mano evita explicarle por telefono como abrir una
+consola, y le permite al tecnico conectarse por VNC.
+
+Por que esta oculta por defecto: una IP interna es informacion de
+infraestructura. No tiene por que estar a la vista mientras alguien comparte su
+pantalla en una reunion o mientras pasa gente por detras del escritorio. Se
+muestra solo cuando la persona la pide, y se vuelve a ocultar con el mismo
+boton. Ademas se pide al servidor recien al apretarlo: si nunca se usa, la
+direccion no viaja ni una vez. */
+let miIpCache=null;
+let miIpVisible=false;
+function ipBoxHtml(){
+  return `<div class="ip-box"><button class="ip-btn" id="ip-toggle" type="button" title="Mostrar la dirección de red de esta computadora, para pasársela a sistemas">${miIpVisible?'Ocultar IP':'Mi IP'}</button><span class="ip-value${miIpVisible?'':' hidden'}" id="ip-value">${miIpCache?esc(miIpCache):''}</span></div>`;
+}
+function wireIpPropia(){
+  const boton=document.getElementById('ip-toggle');
+  const valor=document.getElementById('ip-value');
+  if(!boton||!valor)return;
+  boton.onclick=async()=>{
+    if(miIpVisible){
+      miIpVisible=false;valor.classList.add('hidden');boton.textContent='Mi IP';return;
+    }
+    if(!miIpCache){
+      boton.disabled=true;
+      try{
+        const {red}=await api('/auth/mi-ip');
+        miIpCache=red&&red.ip?red.ip:'No se pudo determinar';
+      }catch{
+        miIpCache='No se pudo determinar';
+      }finally{
+        boton.disabled=false;
+      }
+    }
+    valor.textContent=miIpCache;
+    valor.classList.remove('hidden');
+    miIpVisible=true;
+    boton.textContent='Ocultar IP';
+  };
+  // Un clic en la direccion la copia: es lo que uno quiere hacer justo despues
+  // de verla, para pegarla en un chat o en un visor de VNC.
+  valor.onclick=async()=>{
+    if(!miIpCache)return;
+    try{await navigator.clipboard.writeText(miIpCache);toast('Dirección copiada.');}
+    catch{ /* si el navegador no lo permite, no pasa nada: se puede leer igual */ }
+  };
+}
+
+function shell(content){const byId=ids=>navItems.filter(([id])=>ids.includes(id));const inicio=byId(['feed']);const operacion=byId(['dashboard','tickets']);const informacion=byId(['employees','equipment','sectors','knowledge']);const administracion=byId(['logbook','users']);const comunicacion=byId(['chat','mail']);const staffNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Operación</div>${operacion.map(nav).join('')}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${informacion.map(nav).join('')}${isAdmin()?`<div class="nav-group">Administración</div>${administracion.map(nav).join('')}`:''}`;const employeeNav=`<div class="nav-group">Inicio</div>${inicio.map(nav).join('')}<div class="nav-group">Soporte</div>${nav(['employee-portal','◈','Mis solicitudes'])}<div class="nav-group">Comunicación</div>${comunicacion.map(nav).join('')}<div class="nav-group">Información</div>${nav(['knowledge','▦','Bases de conocimiento'])}`;const bellBadge=notifUnreadCount>0?`<span class="bell-badge">${notifUnreadCount>99?'99+':notifUnreadCount}</span>`:'';app.innerHTML=`<div class="layout" id="layout"><div class="nav-backdrop" id="nav-backdrop"></div><aside class="sidebar" id="sidebar"><div class="brand"><span class="brand-mark">C</span><span>CIGST</span><button class="bell" id="notif-bell" type="button" title="Notificaciones">🔔${bellBadge}</button></div><div id="notif-panel" class="notif-panel hidden"></div><nav class="nav">${isStaff()?staffNav:employeeNav}</nav><div class="sidebar-user"><strong>${esc(currentUser.name)}</strong><span>${esc(currentUser.role)}</span></div></aside><main class="main"><header class="topbar"><button class="nav-toggle" id="nav-toggle" type="button" aria-label="Abrir el menú" aria-expanded="false">☰</button>${isStaff()?`<div class="search"><span class="search-icon">⌕</span><input id="global-search" placeholder="Buscar personas, equipos, tickets, notas…" autocomplete="off"/><span class="key">Ctrl K</span></div>`:'<div class="brand"><span>Mis solicitudes de soporte</span></div>'}<div class="top-actions">${ipBoxHtml()}<span class="status-dot" title="Sistema operativo"></span><button class="btn btn-ghost" id="logout">Salir</button><div class="avatar">${currentUser.initials}</div></div></header><div class="content">${content}</div></main></div><div id="modal-root"></div>`;document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>{cerrarNavMovil();currentView=el.dataset.view;currentDetailId=null;render();});wireNavMovil();
+wireIpPropia();
+$('#notif-bell').onclick=toggleNotifPanel;$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});}catch{ /* si falla la red, igual cerramos localmente */ }session=false;currentUser=null;disconnectRealtime();feedPosts=[];feedComentarios.clear();feedAbiertos.clear();kbSpaces=[];kbSpace=null;kbArticle=null;mailEstado=null;mailCuentas=[];mailCuentaActiva=null;mailCarpetas=[];mailMensajes=[];mailAbierto=null;chatConversations=[];chatGroups=[];activeChatConversationId=null;activeChatGroupId=null;chatMessages=[];chatUnreadCount=0;notifUnreadCount=0;render();};$('#global-search')?.addEventListener('input',e=>globalSearch(e.target.value));document.onkeydown=keyHandler;}
 const nav=([id,icon,label])=>{const badge=id==='chat'&&chatUnreadCount>0?`<span class="nav-badge">${chatUnreadCount>99?'99+':chatUnreadCount}</span>`:'';return `<button class="nav-item ${currentView===id?'active':''}" data-view="${id}"><span class="nav-icon">${icon}</span>${label}${badge}</button>`;};
-function keyHandler(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
+function keyHandler(e){
+  if(e.key==='Escape'&&document.getElementById('layout')?.classList.contains('nav-abierto')){cerrarNavMovil();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#global-search')?.focus();}if(e.key==='Escape'){closeModal();document.getElementById('notif-panel')?.classList.add('hidden');}}
 function page(title,subtitle,button=''){return `<div class="page-title"><div><h1>${title}</h1><p>${subtitle}</p></div>${button}</div>`}
-function dashboard(){const active=store.tickets.filter(t=>!['Resuelto','Cerrado','Cancelado'].includes(t.status));return page('Centro de operaciones','Visión general del soporte técnico.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)+`<section class="metrics"><div class="metric"><div class="metric-label">Abiertos <span>◈</span></div><div class="metric-value">${active.length}</div><div class="metric-meta">requieren seguimiento</div></div><div class="metric urgent"><div class="metric-label">Urgentes <span>!</span></div><div class="metric-value">${store.tickets.filter(t=>t.priority==='Crítica').length}</div><div class="metric-meta">prioridad crítica</div></div><div class="metric live"><div class="metric-label">En proceso <span>↗</span></div><div class="metric-value">${store.tickets.filter(t=>t.status==='En proceso').length}</div><div class="metric-meta">con técnico asignado</div></div><div class="metric"><div class="metric-label">Esperando <span>◷</span></div><div class="metric-value">${store.tickets.filter(t=>t.status.startsWith('Esperando')).length}</div><div class="metric-meta">usuario o proveedor</div></div><div class="metric"><div class="metric-label">Resueltos <span>✓</span></div><div class="metric-value">${store.tickets.filter(t=>['Resuelto','Cerrado'].includes(t.status)).length}</div><div class="metric-meta">histórico registrado</div></div></section><section class="grid"><div class="panel"><div class="panel-head"><h2>Tickets que requieren atención</h2><a data-view="tickets">Ver todos</a></div>${ticketsTable(active)}</div><div class="panel"><div class="panel-head"><h2>Actividad reciente</h2>${isAdmin()?'<a data-view="logbook">Bitácora</a>':''}</div><div class="activity">${store.activity.length?store.activity.map(activity).join(''):'<div class="empty">Todavía no hay actividad registrada.</div>'}</div></div></section><section class="two-panels"><div class="panel"><div class="panel-head"><h2>Eventos importantes</h2>${isAdmin()?'<a data-view="logbook">Ver bitácora</a>':''}</div>${isAdmin()?(store.logbook.length?store.logbook.slice(0,3).map(e=>`<div class="event"><strong>${esc(e.title)}</strong><span>${esc(e.category)} · ${e.date} · ${esc(e.author)}</span></div>`).join(''):'<div class="empty">No hay eventos técnicos registrados.</div>'):'<div class="empty">Solo visible para Administrador.</div>'}</div><div class="panel"><div class="panel-head"><h2>Recordatorios</h2></div><div class="empty">No hay recordatorios pendientes.</div></div></section>`}
+// Tablero. Los cinco numeros de arriba los calcula Postgres con un GROUP BY
+// indexado (ver /tickets/stats): antes el navegador se traia TODOS los tickets
+// de la empresa solo para poder contarlos, cosa que a los pocos anios de uso
+// significa bajar y recorrer miles de registros en cada visita al tablero.
+function dashboard(){
+  const st=store.stats||{abiertos:0,criticos:0,enProceso:0,esperando:0,resueltos:0};
+  const metrica=(clase,etiqueta,simbolo,valor,pie)=>`<div class="metric ${clase}"><div class="metric-label">${etiqueta} <span>${simbolo}</span></div><div class="metric-value">${valor}</div><div class="metric-meta">${pie}</div></div>`;
+  return page('Centro de operaciones','Visión general del soporte técnico.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)
+    +`<section class="metrics">`
+      +metrica('','Abiertos','◈',st.abiertos,'requieren seguimiento')
+      +metrica('urgent','Urgentes','!',st.criticos,'prioridad crítica')
+      +metrica('live','En proceso','↗',st.enProceso,'con técnico asignado')
+      +metrica('','Esperando','◷',st.esperando,'usuario o proveedor')
+      +metrica('','Resueltos','✓',st.resueltos,'histórico registrado')
+    +`</section>`
+    +`<section class="grid"><div class="panel"><div class="panel-head"><h2>Tickets que requieren atención</h2><a data-view="tickets">Ver todos</a></div>${ticketsTable(store.tickets)}</div>`
+    +`<div class="panel"><div class="panel-head"><h2>Actividad reciente</h2>${isAdmin()?'<a data-view="logbook">Bitácora</a>':''}</div><div class="activity">${store.activity.length?store.activity.map(activity).join(''):'<div class="empty">Todavía no hay actividad registrada.</div>'}</div></div></section>`
+    +`<section class="two-panels"><div class="panel"><div class="panel-head"><h2>Eventos importantes</h2>${isAdmin()?'<a data-view="logbook">Ver bitácora</a>':''}</div>${isAdmin()?(store.logbook.length?store.logbook.slice(0,3).map(e=>`<div class="event"><strong>${esc(e.title)}</strong><span>${esc(e.category)} · ${e.date} · ${esc(e.author)}</span></div>`).join(''):'<div class="empty">No hay eventos técnicos registrados.</div>'):'<div class="empty">Solo visible para Administrador.</div>'}</div>`
+    +`<div class="panel"><div class="panel-head"><h2>Recordatorios</h2></div><div class="empty">No hay recordatorios pendientes.</div></div></section>`;
+}
 /* ---------- Ordenamiento de listas por columna ---------- */
 // Cada lista recuerda por que columna esta ordenada y en que sentido. Se
 // hace clic en el encabezado para ordenar y de nuevo para invertir.
@@ -671,6 +808,10 @@ function sortValue(kind,col,row){
 // usaria el codigo del caracter, que para nombres reales se ve desordenado.
 const textCompare=new Intl.Collator('es',{sensitivity:'base',numeric:true}).compare;
 function sortRows(kind,rows){
+  // El orden de las listas paginadas lo resuelve Postgres con la colacion
+  // espaniola, sobre el total de registros. Reordenar aca solo mezclaria las
+  // filas de la pagina actual.
+  if(PAGINADAS.has(kind))return rows;
   const s=sortState[kind];
   if(!s||!s.col)return rows;
   return [...rows].sort((a,b)=>{
@@ -691,7 +832,10 @@ function wireSorting(root=document){
     const kind=th.dataset.sortKind,col=th.dataset.sortCol;
     const s=sortState[kind];
     sortState[kind]=(s&&s.col===col)?{col,dir:s.dir*-1}:{col,dir:1};
-    refreshList(kind);
+    // Al cambiar el orden se vuelve a la primera pagina: seguir en la pagina 7
+    // de un orden distinto no significa nada.
+    if(PAGINADAS.has(kind))pagerDe(kind).page=1;
+    void refreshList(kind);
   });
 }
 
@@ -714,15 +858,15 @@ function ticketsMatchingStatus(rows){
 }
 function ticketsView(){
   const opts=TICKET_STATUS_OPTIONS.map(([v,l])=>`<option value="${esc(v)}"${v===ticketStatusFilter?' selected':''}>${esc(l)}</option>`).join('');
-  const visibles=ticketsMatchingStatus(store.tickets).length;
   return page('Tickets','Registro y seguimiento de pedidos.',`<button class="btn btn-primary" data-action="new-ticket">+ Nuevo ticket</button>`)
     +`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por título, persona o número…" data-filter="tickets" />`
     +`<select class="list-select" id="ticket-status-filter" title="Filtrar por estado">${opts}</select>`
-    +`<span class="list-count">${visibles} de ${store.tickets.length}</span></div>`
-    +`<div class="panel" id="tickets-table">${ticketsTable(ticketsMatchingStatus(store.tickets))}</div>`;
+    +`<span class="list-count" data-count="tickets">${textoConteo('tickets')}</span></div>`
+    +`<div class="panel" id="tickets-table">${ticketsTable(store.tickets)}</div>`
+    +`<div id="tickets-pager">${paginacionHtml('tickets')}</div>`;
 }
 function employeePortal(){const person=employee(currentUser.employeeId);return page('Solicitudes de soporte','Creá una solicitud para vos o para cualquier persona de la empresa.',`<button class="btn btn-primary" data-action="new-employee-ticket">+ Solicitar soporte</button>`)+`<section class="panel"><div class="panel-head"><h2>Mis solicitudes</h2><span class="muted">${esc(person?.sectorName||'')}</span></div>${ticketsTable(store.tickets)}</section><section class="panel" style="margin-top:18px"><div class="side-card"><h3>¿Necesitás ayuda?</h3><p class="muted">Describí el problema, elegí a quién hay que asistir (vos u otra persona), la prioridad y, si corresponde, el equipo. Sistemas recibirá la solicitud y actualizará el estado.</p></div></section>`}
-function employeesView(){return page('Personas','Ficha centralizada de colaboradores y su contexto técnico.',isAdmin()?`<button class="btn btn-primary" data-action="new-employee">+ Nueva persona</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, correo, interno o sector…" data-filter="employees" /></div><div class="panel" id="employees-table">${employeesTable(store.employees)}</div>`}
+function employeesView(){return page('Personas','Ficha centralizada de colaboradores y su contexto técnico.',isAdmin()?`<button class="btn btn-primary" data-action="new-employee">+ Nueva persona</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, correo, interno o sector…" data-filter="employees" /><span class="list-count" data-count="employees">${textoConteo('employees')}</span></div><div class="panel" id="employees-table">${employeesTable(store.employees)}</div><div id="employees-pager">${paginacionHtml('employees')}</div>`}
 // Indicador de disponibilidad segun el horario laboral cargado. Lo calcula el
 // servidor con la hora de la empresa, asi todos ven lo mismo.
 function workingBadge(x){
@@ -734,13 +878,14 @@ function workingRange(x){
   return x.workStartTime&&x.workEndTime?`${x.workStartTime}–${x.workEndTime}`:'';
 }
 function employeesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('employees','name','Persona')}${sortableTh('employees','sectorName','Sector')}${sortableTh('employees','position','Cargo')}${sortableTh('employees','workStartTime','Horario')}${sortableTh('employees','workingStatus','Disponibilidad')}${sortableTh('employees','status','Estado')}</tr></thead><tbody>${sortRows('employees',rows).map(x=>`<tr data-employee="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="muted">${esc(x.email)}</span></td><td>${esc(x.sectorName||'Sin sector')}</td><td>${esc(x.position)}</td><td class="mono">${esc(workingRange(x)||x.workShift||'—')}</td><td>${workingBadge(x)}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">No se encontraron personas.</td></tr>`}</tbody></table></div>`}
-function equipmentView(){return page('Equipos y espacios','Todo aquello sobre lo que se puede pedir ayuda: equipos, consultorios, salas, instalaciones.',isAdmin()?`<button class="btn btn-primary" data-action="new-equipment">+ Nuevo equipo o espacio</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por tipo, nombre o sector…" data-filter="equipment" /></div><div class="panel" id="equipment-table">${equipmentTable(store.equipment)}</div>`}
+function equipmentView(){return page('Equipos y espacios','Todo aquello sobre lo que se puede pedir ayuda: equipos, consultorios, salas, instalaciones.',isAdmin()?`<button class="btn btn-primary" data-action="new-equipment">+ Nuevo equipo o espacio</button>`:'')+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por código, tipo, nombre o sector…" data-filter="equipment" /><span class="list-count" data-count="equipment">${textoConteo('equipment')}</span></div><div class="panel" id="equipment-table">${equipmentTable(store.equipment)}</div><div id="equipment-pager">${paginacionHtml('equipment')}</div>`}
 function equipmentTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('equipment','model','Equipo o espacio')}${sortableTh('equipment','type','Tipo')}${sortableTh('equipment','sectorName','Sector')}${sortableTh('equipment','status','Estado')}</tr></thead><tbody>${sortRows('equipment',rows).map(x=>`<tr data-equipment="${x.id}"><td><strong>${esc(x.model)||esc(x.type)}</strong><br><span class="muted mono">${esc(x.code)}</span></td><td>${esc(x.type)}</td><td>${esc(x.sectorName||'Sin sector')}</td><td>${badge(x.status)}</td></tr>`).join('')||`<tr><td colspan="4" class="empty">No se encontraron equipos ni espacios.</td></tr>`}</tbody></table></div>`}
-function logbookView(){return page('Bitácora técnica','Eventos relevantes y cambios de infraestructura.',`<button class="btn btn-primary" data-action="new-log">+ Registrar evento</button>`)+`<section class="panel">${store.logbook.map(x=>`<div class="event"><div class="row-between"><strong>${esc(x.title)}</strong>${badge(x.category)}</div><span>${x.date} · ${esc(x.author)}</span><p class="muted">${esc(x.detail)}</p></div>`).join('')}</section>`}
+function logbookTable(rows){return rows.map(x=>`<div class="event"><div class="row-between"><strong>${esc(x.title)}</strong>${badge(x.category)}</div><span>${x.date} · ${esc(x.author)}</span><p class="muted">${esc(x.detail)}</p></div>`).join('')||'<div class="empty">No hay eventos registrados.</div>'}
+function logbookView(){return page('Bitácora técnica','Eventos relevantes y cambios de infraestructura.',`<button class="btn btn-primary" data-action="new-log">+ Registrar evento</button>`)+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por título, número o categoría…" data-filter="logbook" /><span class="list-count" data-count="logbook">${textoConteo('logbook')}</span></div><section class="panel" id="logbook-table">${logbookTable(store.logbook)}</section><div id="logbook-pager">${paginacionHtml('logbook')}</div>`}
 function usersTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('users','name','Usuario')}${sortableTh('users','role','Rol')}${sortableTh('users','status','Estado')}${sortableTh('users','lastAccess','Último acceso')}${sortableTh('users','logins','Ingresos')}</tr></thead><tbody>${sortRows('users',rows).map(x=>`<tr data-user="${x.id}"><td><strong>${esc(x.name)}</strong><br><span class="mono">${esc(x.username)}</span></td><td>${esc(x.role)}</td><td>${badge(x.status)}</td><td>${esc(x.lastAccess)}</td><td>${x.logins}</td></tr>`).join('')||`<tr><td colspan="5" class="empty">No hay usuarios.</td></tr>`}</tbody></table></div>`}
-function usersView(){return page('Panel administrador','Usuarios, roles y accesos de la plataforma.',`<button class="btn btn-primary" data-action="new-user">+ Crear usuario</button>`)+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre, usuario o rol…" data-filter="users" /><span class="list-count">${store.users.length} usuarios</span></div><section class="panel" id="users-table">${usersTable(store.users)}</section>`}
-function employeeDetail(x){const relatedTickets=store.tickets.filter(t=>t.employee===x.id);return page('Ficha de persona','Contexto operativo unificado.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-employee="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.name)}</h2><p>${esc(x.position)} · ${esc(x.sectorName||'Sin sector')}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Correo</label>${esc(x.email)}</div><div class="info"><label>Interno</label>${esc(x.extension)}</div><div class="info"><label>Horario laboral</label>${esc(workingRange(x)||x.workShift||'No definido')} ${workingBadge(x)}</div><div class="info"><label>Reemplazo</label>${esc(x.replacementInfo?.name||'No definido')}</div></div></div><div class="panel-head"><h2>Tickets relacionados</h2></div>${ticketsTable(relatedTickets)}</section><aside><div class="panel side-card"><h3>Equipamiento del sector</h3>${x.sectorEquipment.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">No hay equipamiento registrado en este sector.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Notas técnicas</h3>${x.notes?`<div class="note">${esc(x.notes)}</div>`:'<p class="muted">Sin observaciones registradas.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía.</p>'}</div></aside></div>`}
-function equipmentDetail(x){const tickets=store.tickets.filter(t=>t.equipment===x.id);return page('Detalle de equipamiento','Información, historial de cambios y tickets asociados.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-equipment="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.model)||esc(x.type)}</h2><p>${esc(x.type)} · ${esc(x.code)}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Sector</label>${esc(x.sectorName||'Sin asignar')}</div></div></div><div class="panel-head"><h2>Tickets asociados</h2></div>${ticketsTable(tickets)}</section><aside><div class="panel side-card"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía. Cada edición del equipo deja acá su historial automático.</p>'}</div></aside></div>`}
+function usersView(){return page('Panel administrador','Usuarios, roles y accesos de la plataforma.',`<button class="btn btn-primary" data-action="new-user">+ Crear usuario</button>`)+`<div class="list-toolbar"><input class="filter" placeholder="Filtrar por nombre o usuario…" data-filter="users" /><span class="list-count" data-count="users">${textoConteo('users')}</span></div><section class="panel" id="users-table">${usersTable(store.users)}</section><div id="users-pager">${paginacionHtml('users')}</div>`}
+function employeeDetail(x){return page('Ficha de persona','Contexto operativo unificado.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-employee="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.name)}</h2><p>${esc(x.position)} · ${esc(x.sectorName||'Sin sector')}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Correo</label>${esc(x.email)}</div><div class="info"><label>Interno</label>${esc(x.extension)}</div><div class="info"><label>Horario laboral</label>${esc(workingRange(x)||x.workShift||'No definido')} ${workingBadge(x)}</div><div class="info"><label>Reemplazo</label>${esc(x.replacementInfo?.name||'No definido')}</div></div></div><div class="panel-head"><h2>Tickets relacionados</h2></div><div data-tickets-de="employeeId=${x.id}"><div class="empty">Cargando…</div></div></section><aside><div class="panel side-card"><h3>Equipamiento del sector</h3>${x.sectorEquipment.map(e=>`<div class="event linkable" data-equipment="${e.id}"><strong>${esc(e.model)||esc(e.type)}</strong><span>${esc(e.type)} · ${badge(e.status)}</span></div>`).join('')||'<p class="muted">No hay equipamiento registrado en este sector.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Notas técnicas</h3>${x.notes?`<div class="note">${esc(x.notes)}</div>`:'<p class="muted">Sin observaciones registradas.</p>'}</div><div class="panel side-card" style="margin-top:18px"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía.</p>'}</div></aside></div>`}
+function equipmentDetail(x){return page('Detalle de equipamiento','Información, historial de cambios y tickets asociados.',isAdmin()?`<button class="btn btn-ghost" type="button" data-edit-equipment="${x.id}">Editar</button>`:'')+`<div class="detail"><section class="panel"><div class="detail-hero"><div class="row-between"><div><h2>${esc(x.model)||esc(x.type)}</h2><p>${esc(x.type)} · ${esc(x.code)}</p></div>${badge(x.status)}</div><div class="info-list"><div class="info"><label>Sector</label>${esc(x.sectorName||'Sin asignar')}</div></div></div><div class="panel-head"><h2>Tickets asociados</h2></div><div data-tickets-de="equipmentId=${x.id}"><div class="empty">Cargando…</div></div></section><aside><div class="panel side-card"><h3>Cambios</h3>${x.changeLog?`<div class="note changelog">${esc(x.changeLog)}</div>`:'<p class="muted">Sin cambios registrados todavía. Cada edición del equipo deja acá su historial automático.</p>'}</div></aside></div>`}
 function sectorsView(){return page('Sectores y turnos','Catálogo compartido por Personas, Equipos y Tickets.',isAdmin()?`<button class="btn btn-primary" data-action="new-sector">+ Nuevo sector</button>`:'')+`<div class="panel" id="sectors-table">${sectorsTable(store.sectors)}</div><section class="panel" style="margin-top:18px"><div class="panel-head"><h2>Turnos de soporte</h2>${isAdmin()?'<button class="btn btn-ghost" data-action="new-schedule">+ Nuevo turno</button>':''}</div><div id="schedules-table">${schedulesTable(store.schedules)}</div></section>`}
 function sectorsTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('sectors','name','Sector')}${sortableTh('sectors','status','Estado')}</tr></thead><tbody>${sortRows('sectors',rows).map(s=>`<tr data-sector="${s.id}"><td><strong>${esc(s.name)}</strong></td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">No hay sectores creados todavía.</td></tr>`}</tbody></table></div>`}
 function schedulesTable(rows){return `<div class="table-wrap"><table class="data-table"><thead><tr>${sortableTh('schedules','name','Turno')}${sortableTh('schedules','startTime','Horario')}${sortableTh('schedules','status','Estado')}</tr></thead><tbody>${sortRows('schedules',rows).map(s=>`<tr data-schedule="${s.id}"><td><strong>${esc(s.name)}</strong></td><td class="mono">${esc(s.startTime)}–${esc(s.endTime)}</td><td>${badge(s.status)}</td></tr>`).join('')||`<tr><td colspan="3" class="empty">No hay turnos creados todavía.</td></tr>`}</tbody></table></div>`}
@@ -852,6 +997,8 @@ function closeModal(){const root=$('#modal-root');if(root)root.innerHTML='';}
 function modal(title,fields,onSubmit){$('#modal-root').innerHTML=`<div class="modal-backdrop"><form class="modal" id="entry-form"><div class="modal-head"><h2>${title}</h2><button class="close" type="button">×</button></div><div class="modal-body"><div class="form-grid">${fields}</div><div class="modal-actions"><button class="btn btn-ghost" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Guardar</button></div></div></form></div>`;$('.close').onclick=closeModal;$('[data-close]').onclick=closeModal;const form=$('#entry-form');form.onsubmit=async e=>{e.preventDefault();const submitBtn=form.querySelector('button[type=submit]');const values=new FormData(form);submitBtn.disabled=true;try{await onSubmit(values);closeModal();toast('Registro guardado correctamente.');render();}catch(err){toast(apiErrorMessage(err));submitBtn.disabled=false;}};}
 const field=(name,label,type='text',extra='')=>`<div class="field ${extra}"><label>${label}</label>${type==='textarea'?`<textarea name="${name}"></textarea>`:`<input name="${name}" type="${type}" required />`}</div>`;
 const requiredTextArea=(name,label,extra='')=>`<div class="field ${extra}"><label>${label}</label><textarea name="${name}" required></textarea></div>`;
+// Campo de texto que se puede dejar vacio, con una linea de ayuda debajo.
+const textOpcional=(name,label,value='',ayuda='',placeholder='')=>`<div class="field"><label>${label}</label><input name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}" /><span class="field-help">${esc(ayuda)}</span></div>`;
 const textValue=(name,label,value='',extra='')=>`<div class="field ${extra}"><label>${label}</label><input name="${name}" value="${esc(value)}" required /></div>`;
 
 /* ---------- Sector: desplegable compartido (se crea/administra desde su propia pantalla) ---------- */
@@ -875,12 +1022,12 @@ function categoryOptionsHtml(sectorId){
 }
 const byName=(a,b)=>String(a[1]).localeCompare(String(b[1]),'es',{sensitivity:'base'});
 function ticketFields(defaultPersonId=''){
-  const equipmentOptions=[['','No corresponde'],...store.equipment.map(x=>[x.id,`${x.model||x.type} · ${x.type}`]).sort(byName)];
+  const equipmentOptions=[['','No corresponde'],...store.opcionesEquipos.map(x=>[x.id,`${x.model||x.type} · ${x.type}`]).sort(byName)];
   // Recien instalada la plataforma todavia no hay personas cargadas: en vez de
   // un desplegable vacio (que parece roto) se dice que falta cargarlas. El
   // ticket igual se puede crear: la persona es opcional.
-  const peopleOptions=store.employees.length
-    ? store.employees.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]).sort(byName)
+  const peopleOptions=store.opcionesPersonas.length
+    ? store.opcionesPersonas.map(x=>[x.id,`${x.name} · ${x.sectorName||'Sin sector'}`]).sort(byName)
     : [['','Todavía no hay personas cargadas']];
   const scheduleOptions=[['','No indicado'],...store.schedules.map(s=>[s.id,`${s.name} · ${s.startTime}–${s.endTime}`]).sort(byName)];
   const personId=defaultPersonId||peopleOptions[0]?.[0]||'';
@@ -917,9 +1064,17 @@ function openNew(kind){
  if(kind==='ticket'){let att;modal('Nuevo ticket',ticketFields(''),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
  if(kind==='employee-ticket'){let att;modal('Solicitar soporte',ticketFields(currentUser.employeeId),f=>createTicket(f,att.ids()));wireTicketFormAutoselect();att=wireAttachmentField('ticket-attach');}
  if(kind==='employee')openEmployeeNew();
- if(kind==='equipment')modal('Nuevo equipo o espacio',select('type','Tipo',EQUIPMENT_TYPES)+field('model','Nombre o identificación')+sectorField(),async f=>{const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||''};const {equipment:created}=await api('/equipment',{method:'POST',body:payload});store.equipment.push(normalizeEquipment(created));});
+ if(kind==='equipment')modal('Nuevo equipo o espacio',
+    select('type','Tipo',EQUIPMENT_TYPES)
+    +field('model','Nombre o identificación')
+    +textOpcional('code','Código','','Si lo dejás vacío, la plataforma le pone uno (EQ-001, EQ-002…). Si tu empresa ya usa etiquetas de inventario, escribí la tuya.','Por ejemplo: PC-RECEP-04')
+    +sectorField(),
+  async f=>{
+    const payload={type:f.get('type'),model:f.get('model'),code:(f.get('code')||'').trim(),sectorId:f.get('sectorId')||''};
+    await api('/equipment',{method:'POST',body:payload});
+  });
  if(kind==='log')modal('Registrar evento',field('title','Título','text','form-span')+select('category','Categoría',['Mantenimiento','Infraestructura','Seguridad','Cambio','Actualización'])+field('detail','Detalle técnico','textarea','form-span'),async f=>{const payload={title:f.get('title'),category:f.get('category'),detail:f.get('detail')};const {entry}=await api('/logbook',{method:'POST',body:payload});store.logbook.unshift(normalizeLogbookEntry(entry));});
- if(kind==='user')modal('Crear usuario',field('name','Nombre completo')+field('username','Usuario')+field('password','Contraseña inicial','password')+select('role','Rol',['Administrador','Supervisor','User'])+select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name])]),async f=>{const payload={name:f.get('name'),username:f.get('username'),password:f.get('password'),role:f.get('role'),employeeId:f.get('role')==='User'?(f.get('employee')||''):''};const {user:created}=await api('/users',{method:'POST',body:payload});store.users.push(normalizeUser(created));});
+ if(kind==='user')modal('Crear usuario',field('name','Nombre completo')+field('username','Usuario')+field('password','Contraseña inicial','password')+`<p class="field-help form-span">${esc(AYUDA_CONTRASENA)}</p>`+select('role','Rol',['Administrador','Supervisor','User'])+select('employee','Persona vinculada',[['','No aplica'],...store.opcionesPersonas.map(x=>[x.id,x.name]).sort(byName)]),async f=>{const payload={name:f.get('name'),username:f.get('username'),password:f.get('password'),role:f.get('role'),employeeId:f.get('role')==='User'?(f.get('employee')||''):''};const {user:created}=await api('/users',{method:'POST',body:payload});store.users.push(normalizeUser(created));});
  if(kind==='sector')modal('Nuevo sector',field('name','Nombre del sector'),async f=>{const {sector:created}=await api('/sectors',{method:'POST',body:{name:f.get('name')}});store.sectors.push(normalizeSector(created));});
  if(kind==='schedule')modal('Nuevo turno',field('name','Nombre del turno')+textValue('startTime','Inicio (HH:MM)','')+textValue('endTime','Fin (HH:MM)',''),async f=>{const {schedule:created}=await api('/schedules',{method:'POST',body:{name:f.get('name'),startTime:f.get('startTime'),endTime:f.get('endTime')}});store.schedules.push(normalizeSchedule(created));});
 }
@@ -928,7 +1083,7 @@ function openNew(kind){
 // Campos de hora reales (no texto libre): con esto la plataforma calcula sola
 // si la persona esta dentro de su horario ahora mismo.
 const timeField=(name,label,value='')=>`<div class="field"><label>${label}</label><input name="${name}" type="time" value="${esc(value||'')}" /></div>`;
-const peopleOptionsSorted=(excludeId='')=>store.employees.filter(x=>x.id!==excludeId).map(x=>[x.id,x.name]).sort(byName);
+const peopleOptionsSorted=(excludeId='')=>store.opcionesPersonas.filter(x=>x.id!==excludeId).map(x=>[x.id,x.name]).sort(byName);
 
 function employeeFormFields(x={}){
   return textValue('name','Nombre y apellido',x.name||'')
@@ -972,9 +1127,14 @@ function openEmployeeNew(defaultSectorId=''){
   });
   relaxOptionalFields();
 }
-function openEmployeeEdit(id){
-  const x=store.employees.find(e=>e.id===id);
-  if(!x)return;
+async function openEmployeeEdit(id){
+  // Puede abrirse desde la ficha de la persona, a la que se llega sin pasar por
+  // el listado: si no esta en la pagina cargada, se la pide al servidor.
+  let x=store.employees.find(e=>e.id===id);
+  if(!x){
+    try{const res=await api(`/employees/${id}`);x=normalizeEmployee(res.employee);}
+    catch(err){toast(apiErrorMessage(err));return;}
+  }
   modal(`Editar ${x.name}`,employeeFormFields(x),async f=>{
     const payload={...employeePayload(f),status:f.get('status')};
     const {employee:updated}=await api(`/employees/${x.id}`,{method:'PATCH',body:payload});
@@ -985,15 +1145,22 @@ function openEmployeeEdit(id){
   addDeleteButton(`¿Eliminar a ${x.name}? Sus tickets se conservan, pero deja de aparecer en los listados.`,
     `/employees/${x.id}`,'Persona eliminada.','employees');
 }
-function openEquipmentEdit(id){
-  const x=equipment(id);
-  if(!x)return;
+async function openEquipmentEdit(id){
+  // Se pide la ficha completa: el listado esta paginado y la lista de opciones
+  // de los desplegables no trae el codigo ni el estado, que son justo dos de
+  // los campos de este formulario.
+  let x=store.equipment.find(e=>e.id===id);
+  if(!x||!x.code){
+    try{const res=await api(`/equipment/${id}`);x=normalizeEquipment(res.equipment);}
+    catch(err){toast(apiErrorMessage(err));return;}
+  }
   const fields=select('type','Tipo',EQUIPMENT_TYPES,x.type)
     +textValue('model','Nombre o identificación',x.model)
+    +textValue('code','Código',x.code)
     +sectorField(x.sectorId,'Sector donde está')
     +select('status','Estado',['Activo','Inactivo'],x.status);
   modal(`Editar ${x.model||x.type}`,fields,async f=>{
-    const payload={type:f.get('type'),model:f.get('model'),sectorId:f.get('sectorId')||'',status:f.get('status')};
+    const payload={type:f.get('type'),model:f.get('model'),code:(f.get('code')||'').trim(),sectorId:f.get('sectorId')||'',status:f.get('status')};
     const {equipment:updated}=await api(`/equipment/${x.id}`,{method:'PATCH',body:payload});
     const idx=store.equipment.findIndex(e=>e.id===x.id);
     if(idx>=0)store.equipment[idx]=normalizeEquipment(updated);
@@ -1028,9 +1195,9 @@ function openUserEdit(id){
   const isSelf=currentUser.id===id;
   const fields=textValue('name','Nombre completo',u.name)
     +select('role','Rol',['Administrador','Supervisor','User'])
-    +select('employee','Persona vinculada',[['','No aplica'],...store.employees.map(x=>[x.id,x.name]).sort(byName)])
+    +select('employee','Persona vinculada',[['','No aplica'],...store.opcionesPersonas.map(x=>[x.id,x.name]).sort(byName)])
     +select('status','Estado',['Activo','Inactivo'])
-    +`<div class="field form-span"><label>Nueva contraseña (opcional)</label><input name="password" type="password" placeholder="Dejar en blanco para no cambiarla" autocomplete="new-password" /></div>`
+    +`<div class="field form-span"><label>Nueva contraseña (opcional)</label><input name="password" type="password" placeholder="Dejar en blanco para no cambiarla" autocomplete="new-password" /><span class="field-help">${esc(AYUDA_CONTRASENA)}</span></div>`
     +`<div class="field form-span"><label>Cambios de esta cuenta</label>${u.changeLog?`<div class="note changelog">${esc(u.changeLog)}</div>`:'<p class="muted" style="margin:4px 0">Sin cambios registrados todavía.</p>'}</div>`;
   modal(`Editar ${u.name}`,fields,f=>updateUser(u,f));
   const form=$('#entry-form');
@@ -1134,7 +1301,12 @@ function toast(message){const el=document.createElement('div');el.className='toa
 function wireRecords(root=document){
   root.querySelectorAll('[data-employee]').forEach(x=>x.onclick=e=>{e.stopPropagation();currentView='employee-detail';render(x.dataset.employee);});
   root.querySelectorAll('[data-equipment]').forEach(x=>x.onclick=e=>{e.stopPropagation();currentView='equipment-detail';render(x.dataset.equipment);});
-  root.querySelectorAll('[data-ticket]').forEach(x=>x.onclick=e=>{e.stopPropagation();const ticket=store.tickets.find(y=>y.id===x.dataset.ticket);if(ticket)ticketDetail(ticket);});
+  root.querySelectorAll('[data-ticket]').forEach(x=>x.onclick=async e=>{
+    e.stopPropagation();
+    const ticket=await traerTicket(x.dataset.ticket);
+    if(ticket)ticketDetail(ticket);
+    else toast('Ese ticket ya no está disponible.');
+  });
   root.querySelectorAll('[data-view-link]').forEach(x=>x.onclick=e=>{e.stopPropagation();currentView=x.dataset.viewLink;currentDetailId=null;render();});
   root.querySelectorAll('[data-user]').forEach(x=>x.onclick=()=>openUserEdit(x.dataset.user));
   root.querySelectorAll('[data-quick-menu]').forEach(x=>x.onclick=e=>{e.stopPropagation();openQuickMenu(x,x.dataset.quickMenu);});
@@ -1148,44 +1320,210 @@ function wireRecords(root=document){
   }
 }
 // Texto escrito en cada filtro, para no perderlo al reordenar la lista.
-const listFilters = { tickets:'', employees:'', equipment:'', users:'' };
+// Se repite del lado del servidor en utils/passwordPolicy.ts, que es donde se
+// valida de verdad. Esto es solo el texto que ve la persona ANTES de escribir:
+// decirle que se espera evita que pruebe cinco veces y termine eligiendo la
+// contrasena mas facil que el sistema le acepte.
+const AYUDA_CONTRASENA = 'Mínimo 10 caracteres, combinando al menos tres de: minúsculas, mayúsculas, números y símbolos. Sin secuencias tipo 1234 ni letras repetidas. Una frase con un número y un guion funciona muy bien (por ejemplo: Roble-Verde-72).';
+
+const listFilters = { tickets:'', employees:'', equipment:'', users:'', logbook:'' };
+
+/* ---------- Paginacion del lado del servidor ----------
+Antes cada listado se traia la tabla ENTERA y el navegador se encargaba de
+filtrar, ordenar y contar. Con 26 tickets eso funciona; con quince mil son
+varios megabytes por pantalla y por persona. Ahora el servidor manda de a una
+pagina y dice cuantos hay en total, y el filtrado y el orden los resuelve la
+base de datos, que para eso tiene los indices.
+
+Las tablas chicas de catalogo (sectores y turnos) siguen siendo del lado del
+cliente: son decenas de filas y no crecen con el uso. */
+const PAGINADAS = new Set(['tickets','employees','equipment','users','logbook']);
+const PAGE_SIZE = 50;
+
+// Origen de cada listado paginado: ruta, clave de la respuesta y como se
+// normaliza cada fila.
+const FUENTES = {
+  tickets:   { url:'/tickets',   clave:'tickets',   norm:r=>normalizeTicket(r) },
+  employees: { url:'/employees', clave:'employees', norm:r=>normalizeEmployee(r) },
+  equipment: { url:'/equipment', clave:'equipment', norm:r=>normalizeEquipment(r) },
+  users:     { url:'/users',     clave:'users',     norm:r=>normalizeUser(r) },
+  logbook:   { url:'/logbook',   clave:'entries',   norm:r=>normalizeLogbookEntry(r) },
+};
+
+// Nombre de columna de la interfaz -> nombre que entiende el servidor. Solo se
+// pueden pedir las columnas que el backend acepta explicitamente.
+const SORT_API = {
+  tickets:   { code:'code', title:'title', person:'employee', priority:'priority', status:'status', technician:'technician' },
+  employees: { name:'name', code:'code', email:'email', extension:'extension', sectorName:'sectorName', status:'status' },
+  equipment: { model:'model', code:'code', type:'type', status:'status', sectorName:'sectorName' },
+  users:     { name:'name', username:'username', status:'status', lastAccess:'lastAccessAt' },
+  logbook:   { title:'title', code:'code', category:'category', date:'occurredAt' },
+};
+
+const pager = {};
+const filtroTimers = {};
+function pagerDe(kind){
+  if(!pager[kind])pager[kind]={page:1,pageSize:PAGE_SIZE,total:0,totalPaginas:1,cargando:false};
+  return pager[kind];
+}
+
+// Trae una pagina del servidor y la deja en store[kind]. Devuelve false si algo
+// fallo, para que quien llame pueda dejar la pantalla como estaba.
+async function cargarPagina(kind){
+  const fuente=FUENTES[kind];
+  if(!fuente)return false;
+  const st=pagerDe(kind);
+  const params=new URLSearchParams();
+  params.set('page',String(st.page));
+  params.set('pageSize',String(st.pageSize));
+  const q=(listFilters[kind]||'').trim();
+  if(q)params.set('q',q);
+  const orden=sortState[kind];
+  if(orden&&orden.col){
+    const col=(SORT_API[kind]||{})[orden.col];
+    if(col){params.set('sort',col);params.set('dir',orden.dir===1?'asc':'desc');}
+  }
+  if(kind==='tickets')params.set('estado',ticketStatusFilter);
+  st.cargando=true;
+  try{
+    const res=await api(`${fuente.url}?${params.toString()}`);
+    store[kind]=(res[fuente.clave]||[]).map(fuente.norm);
+    st.total=res.total??store[kind].length;
+    st.totalPaginas=res.totalPaginas??1;
+    st.pageSize=res.pageSize??st.pageSize;
+    // Si se borro el ultimo registro de la ultima pagina, se retrocede sola.
+    if(st.page>st.totalPaginas&&st.totalPaginas>=1){st.page=st.totalPaginas;st.cargando=false;return cargarPagina(kind);}
+    return true;
+  }catch(err){
+    toast(apiErrorMessage(err));
+    return false;
+  }finally{
+    st.cargando=false;
+  }
+}
+
+// Barra de paginado. No se dibuja si todo entra en una sola pagina: en una
+// empresa recien instalada no tiene por que aparecer nada.
+function paginacionHtml(kind){
+  const st=pagerDe(kind);
+  if(st.totalPaginas<=1)return '';
+  const desde=(st.page-1)*st.pageSize+1;
+  const hasta=Math.min(st.page*st.pageSize,st.total);
+  return `<div class="pager"><button class="btn btn-ghost" type="button" data-pager="${kind}" data-pager-dir="-1"${st.page<=1?' disabled':''}>‹ Anterior</button>`
+    +`<span class="pager-info">${desde}–${hasta} de ${st.total}</span>`
+    +`<button class="btn btn-ghost" type="button" data-pager="${kind}" data-pager-dir="1"${st.page>=st.totalPaginas?' disabled':''}>Siguiente ›</button></div>`;
+}
+
+function wirePaginacion(root=document){
+  root.querySelectorAll('[data-pager]').forEach(b=>b.onclick=async()=>{
+    const kind=b.dataset.pager;
+    const st=pagerDe(kind);
+    const siguiente=st.page+Number(b.dataset.pagerDir);
+    if(siguiente<1||siguiente>st.totalPaginas)return;
+    st.page=siguiente;
+    await refreshList(kind);
+    // Al cambiar de pagina se vuelve arriba: si no, uno queda mirando el pie
+    // de una tabla que ya cambio entera.
+    document.querySelector('.content')?.scrollTo({top:0,behavior:'smooth'});
+  });
+}
 // Todas las tablas que se redibujan solas al ordenar o filtrar. Si una tabla
 // falta en este mapa, el encabezado se puede clickear pero la lista no se
 // vuelve a dibujar: el orden cambia por dentro y no se ve.
-const tableRenderers = { tickets:ticketsTable, employees:employeesTable, equipment:equipmentTable, users:usersTable, sectors:sectorsTable, schedules:schedulesTable };
+const tableRenderers = { tickets:ticketsTable, employees:employeesTable, equipment:equipmentTable, users:usersTable, sectors:sectorsTable, schedules:schedulesTable, logbook:logbookTable };
 
-// Filas visibles de una lista: filtro de texto + (en tickets) filtro de estado.
+// Filas visibles de una lista.
+//
+// En las listas paginadas el filtrado y el orden ya los resolvio el servidor
+// sobre el total de registros: volver a filtrar aca seria filtrar dentro de una
+// sola pagina, que es justamente lo que NO hay que hacer (mostraria "los
+// activos que hay entre los primeros 50" en vez de "los activos").
+// Las tablas chicas de catalogo si se filtran en el navegador.
 function visibleRows(kind){
+  if(PAGINADAS.has(kind))return store[kind]||[];
   let rows=store[kind]||[];
-  if(kind==='tickets')rows=ticketsMatchingStatus(rows);
   const q=(listFilters[kind]||'').toLowerCase().trim();
   if(q)rows=rows.filter(x=>Object.values(x).join(' ').toLowerCase().includes(q));
   return rows;
 }
 // Vuelve a dibujar solo la tabla (sin recargar la vista entera): mantiene el
 // foco en el buscador mientras se escribe.
-function refreshList(kind){
+async function refreshList(kind){
   const container=document.getElementById(`${kind}-table`);
   const render=tableRenderers[kind];
   if(!container||!render)return;
+
+  // Las listas paginadas piden su pagina al servidor antes de dibujar.
+  if(PAGINADAS.has(kind)){
+    const ok=await cargarPagina(kind);
+    if(!ok)return;
+  }
+
   const rows=visibleRows(kind);
   container.innerHTML=render(rows);
   wireRecords(container);
   wireSorting(container);
-  const count=document.querySelector('.list-count');
-  if(count&&kind==='tickets')count.textContent=`${rows.length} de ${store.tickets.length}`;
+
+  const barra=document.getElementById(`${kind}-pager`);
+  if(barra){barra.innerHTML=paginacionHtml(kind);wirePaginacion(barra);}
+
+  const count=document.querySelector(`[data-count="${kind}"]`);
+  if(count)count.textContent=textoConteo(kind);
 }
+
+// Texto del contador que va arriba de cada tabla.
+function textoConteo(kind){
+  if(!PAGINADAS.has(kind))return `${(store[kind]||[]).length}`;
+  const st=pagerDe(kind);
+  const n=st.total;
+  const etiquetas={tickets:'ticket',employees:'persona',equipment:'equipo o espacio',users:'usuario',logbook:'evento'};
+  const singular=etiquetas[kind]||'registro';
+  if(n===1)return `1 ${singular}`;
+  const plural=singular==='persona'?'personas':singular==='equipo o espacio'?'equipos y espacios':`${singular}s`;
+  return `${n} ${plural}`;
+}
+// Los tickets de una ficha (de una persona o de un equipo) los filtra la base
+// de datos. Antes se filtraba sobre la lista que tenia cargada el navegador, y
+// con paginacion eso mostraria solo los que casualmente estuvieran en la pagina
+// que se tenia a mano: la ficha diria "sin tickets" teniendo veinte.
+async function cargarTicketsRelacionados(root=document){
+  const cajas=[...root.querySelectorAll('[data-tickets-de]')];
+  for(const caja of cajas){
+    try{
+      const res=await api(`/tickets?${caja.dataset.ticketsDe}&estado=todos&pageSize=50`);
+      const filas=(res.tickets||[]).map(normalizeTicket);
+      caja.innerHTML=ticketsTable(filas)+(res.total>filas.length?`<div class="pager"><span class="pager-info">Se muestran los ${filas.length} más recientes de ${res.total}.</span></div>`:'');
+      wireRecords(caja);
+    }catch{
+      caja.innerHTML='<div class="empty">No se pudieron cargar los tickets relacionados.</div>';
+    }
+  }
+}
+
 function wirePage(){
   document.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>openNew(x.dataset.action.replace('new-','')));
   document.querySelectorAll('.filter').forEach(input=>{
     const kind=input.dataset.filter;
     input.value=listFilters[kind]||'';
-    input.oninput=()=>{listFilters[kind]=input.value;refreshList(kind);};
+    input.oninput=()=>{
+      listFilters[kind]=input.value;
+      if(PAGINADAS.has(kind)){
+        // Se espera a que la persona deje de escribir antes de consultar: sin
+        // esto se dispararia una consulta por cada tecla.
+        pagerDe(kind).page=1;
+        clearTimeout(filtroTimers[kind]);
+        filtroTimers[kind]=setTimeout(()=>void refreshList(kind),280);
+      }else{
+        void refreshList(kind);
+      }
+    };
   });
   const statusFilter=document.getElementById('ticket-status-filter');
-  if(statusFilter)statusFilter.onchange=()=>{ticketStatusFilter=statusFilter.value;refreshList('tickets');};
+  if(statusFilter)statusFilter.onchange=()=>{ticketStatusFilter=statusFilter.value;pagerDe('tickets').page=1;void refreshList('tickets');};
   wireRecords();
   wireSorting();
+  wirePaginacion();
+  void cargarTicketsRelacionados();
 }
 
 /* ---------- Chat interno (1 a 1 y grupos) ---------- */
@@ -1575,7 +1913,7 @@ async function openNotification(id,targetType,targetId){
     currentView=isStaff()?'tickets':'employee-portal';
     currentDetailId=null;
     await render();
-    const ticket=store.tickets.find(t=>t.id===targetId);
+    const ticket=await traerTicket(targetId);
     if(ticket)ticketDetail(ticket);
     else toast('Ese ticket ya no está disponible.');
     return;
@@ -1636,8 +1974,8 @@ async function render(id){
   if(currentView==='users'&&!isAdmin())currentView='dashboard';
   if(currentView==='logbook'&&!isAdmin())currentView='dashboard';
   try{
-    if(!['chat','feed','knowledge'].includes(currentView))await loadStaffData();
-    if(currentView==='feed'){await loadStaffData();await loadFeed(true);}
+    if(!['chat','feed','knowledge'].includes(currentView))await loadStaffData(currentView);
+    if(currentView==='feed'){await loadCatalogos();await loadFeed(true);}
     if(currentView==='knowledge'&&!kbSpace)await loadKbSpaces();
     if(currentView==='mail'){
       await loadMailEstado();
@@ -1646,7 +1984,6 @@ async function render(id){
         if(mailCuentaActiva&&!mailCarpetas.length){await loadMailCarpetas();await loadMailMensajes();}
       }
     }
-    if(currentView==='users')await loadUsers();
   }catch(err){handleApiError(err);return;}
   let content;
   switch(currentView){
@@ -1669,9 +2006,14 @@ async function render(id){
       break;
     }
     case 'equipment-detail':{
-      const eq=id?equipment(id):null;
-      if(!eq){currentView='equipment';content=equipmentView();break;}
-      content=equipmentDetail(eq);
+      // Se pide al servidor en vez de buscarlo en el listado: con paginacion,
+      // el equipo puede perfectamente no estar en la pagina que se tiene
+      // cargada (por ejemplo si se llego desde un ticket o desde el buscador).
+      if(!id){currentView='equipment';content=equipmentView();break;}
+      let detalle;
+      try{const res=await api(`/equipment/${id}`);detalle=normalizeEquipment(res.equipment);}
+      catch(err){handleApiError(err);return;}
+      content=equipmentDetail(detalle);
       break;
     }
     case 'sector-detail':{
@@ -3035,6 +3377,25 @@ async function mailPanelCuentas() {
 
 /* ---------- Servidores (solo Administrador) ---------- */
 
+// Al marcar la casilla de red interna se pide una confirmacion explicita: es
+// la unica opcion del formulario que amplia lo que la plataforma puede alcanzar
+// dentro de la red, y merece un momento de atencion.
+function wireAvisoRedInterna(){
+  const casilla=document.getElementById('permitir-interna');
+  if(!casilla)return;
+  casilla.onchange=()=>{
+    if(!casilla.checked)return;
+    const sigue=window.confirm(
+      'Vas a permitir que este proveedor de correo se conecte a direcciones de la red interna.\n\n'
+      +'Marcá esta opción SOLO si el servidor de correo de la empresa está dentro de la red '
+      +'(por ejemplo un Zimbra o Roundcube propio).\n\n'
+      +'Si usás Gmail, Outlook u otro proveedor de internet, dejala SIN marcar.\n\n'
+      +'¿Continuar?'
+    );
+    if(!sigue)casilla.checked=false;
+  };
+}
+
 async function mailPanelServidores() {
   let proveedores;
   try { ({ providers: proveedores } = await api('/mail/providers')); }
@@ -3059,9 +3420,12 @@ async function mailPanelServidores() {
     + `<div class="field form-span"><label>Cifrado de salida</label><select name="smtpSecurity">`
     + `<option value="ssl">SSL/TLS (puerto 465)</option><option value="starttls">STARTTLS (puerto 587)</option>`
     + `<option value="ninguno">Sin cifrado (no recomendado)</option></select></div>`
-    + `<label class="blk-check form-span"><input type="checkbox" name="allowInternal" /> El servidor está en la red interna de la empresa</label>`
-    + `<p class="blk-ayuda form-span">Marcá esa casilla solo si el correo de la empresa corre en un servidor propio de la red. `
-    + `Sin marcarla, la plataforma no se conecta a direcciones internas — es lo que evita que se la use para sondear la red.</p>`;
+    + `<label class="blk-check form-span"><input type="checkbox" name="allowInternal" id="permitir-interna" /> El servidor de correo está dentro de la red de la empresa</label>`
+    + `<p class="blk-ayuda form-span aviso-riesgo"><strong>Dejala sin marcar salvo que sea imprescindible.</strong> `
+    + `Sin marcar, la plataforma solo se conecta a servidores de correo de internet, y no puede alcanzar ninguna dirección de la red interna. `
+    + `Al marcarla habilitás a <em>este proveedor</em> a conectarse también a direcciones internas: es necesario si el correo corre en un servidor propio de la empresa `
+    + `(por ejemplo un Zimbra o un Roundcube instalado en la oficina), pero abre una vía que no conviene abrir "por las dudas". `
+    + `Los puertos siguen limitados a los de correo en cualquier caso.</p>`;
 
   modal('Servidores de correo', contenido, async (f) => {
     await api('/mail/providers', {
@@ -3077,6 +3441,7 @@ async function mailPanelServidores() {
     toast('Proveedor configurado.');
   });
   relaxOptionalFields();
+  wireAvisoRedInterna();
 
   // Al elegir un preset se completan los campos y se muestra su advertencia.
   const sel = document.getElementById('mail-preset');

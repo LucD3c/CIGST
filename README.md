@@ -169,9 +169,19 @@ El mismo menú sirve después para el día a día:
    5) Detener la plataforma
    6) Hacer copia de seguridad (datos + adjuntos)
    7) Restaurar una copia de seguridad
-   8) Resetear todo (BORRA los datos)
-   9) Salir
+   8) Programar copias automaticas
+   9) Liberar espacio (borra solo datos SIN USO)
+  10) Resetear todo (BORRA los datos)
+  11) Salir
 ```
+
+> [!NOTE]
+> La opción **9) Liberar espacio** elimina *únicamente* datos que ya no le
+> sirven a nadie: sesiones vencidas, intentos de login viejos, avisos ya
+> leídos y archivos que quedaron en disco sin ninguna referencia. **Nunca
+> toca tickets, mensajes, conversaciones, imágenes, PDF, planillas, personas,
+> equipos ni artículos** — tampoco los que están dados de baja. El detalle
+> completo está en [docs/instaladores.md](docs/instaladores.md).
 
 ## Actualizar sin perder datos
 

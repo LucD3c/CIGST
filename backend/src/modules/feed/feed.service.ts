@@ -172,9 +172,13 @@ export async function remove(user: SessionUser, id: string) {
   if (!existente) throw HttpError.notFound('Publicación no encontrada.');
   assertPuedePublicar(user);
   assertPuedeAdministrar(user, existente);
+  // La audiencia se calcula ANTES de dar de baja: una vez marcada como
+  // eliminada ya no se puede saber quienes la veian. Sin esto habia que
+  // avisarle a todos los conectados, que es mas de lo necesario.
+  const destinatarios = await usuariosQueVen(id, existente.audience);
   await repo.softDelete(id);
   const realtime = await import('../../realtime/realtime.emit');
-  realtime.postRemoved(id);
+  realtime.postRemoved(id, destinatarios);
 }
 
 /* ---------- Comentarios ---------- */

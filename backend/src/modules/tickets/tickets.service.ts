@@ -1,5 +1,6 @@
 import { HttpError } from '../../utils/httpError';
 import { sortByName } from '../../utils/sortByName';
+import { armarPagina, ordenar, saltear, type PaginationQuery } from '../../utils/pagination';
 import * as repo from './tickets.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import * as sectorsRepo from '../sectors/sectors.repository';
@@ -86,7 +87,19 @@ function findUserByEmployeeId(employeeId: string | null) {
   });
 }
 
-export async function list(user: SessionUser, q?: string) {
+// Arma el filtro de visibilidad + busqueda. Se comparte entre el listado
+// paginado y los conteos del tablero para que los dos vean exactamente lo
+// mismo: si el tablero contara sobre un universo distinto al de la lista, los
+// numeros no cerrarian con lo que la persona ve.
+// Estados que se consideran "cerrados" para el filtro rapido del listado.
+const ESTADOS_CERRADOS = ['Cerrado', 'Cancelado'];
+
+function filtroPara(
+  user: SessionUser,
+  q?: string,
+  estado?: string,
+  extra?: { employeeId?: string; equipmentId?: string },
+): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (!isStaff(user)) {
     // Rango User: ve los tickets que creo el mismo y aquellos donde es la
@@ -102,7 +115,77 @@ export async function list(user: SessionUser, q?: string) {
       { status: { contains: q, mode: 'insensitive' } },
     ];
   }
-  return repo.findMany(where);
+  // 'activos' esconde cerrados y cancelados (es lo que importa en el dia a
+  // dia); 'todos' no filtra; cualquier otro valor es un estado concreto.
+  if (estado && estado !== 'todos') {
+    where.status = estado === 'activos' ? { notIn: ESTADOS_CERRADOS } : estado;
+  }
+  // Los filtros de ficha se suman a la visibilidad por rol, nunca la
+  // reemplazan: un usuario de rango User que pida los tickets de otra persona
+  // sigue viendo unicamente los suyos.
+  if (extra?.employeeId) where.employeeId = extra.employeeId;
+  if (extra?.equipmentId) where.equipmentId = extra.equipmentId;
+  return where;
+}
+
+export async function list(user: SessionUser, q?: string) {
+  return repo.findMany(filtroPara(user, q));
+}
+
+// Columnas por las que se puede ordenar desde la interfaz. El mapa es explicito
+// a proposito: lo que no esta aca no se puede pedir, asi el cliente no puede
+// ordenar por una columna arbitraria.
+const ORDEN: Record<string, (dir: 'asc' | 'desc') => Record<string, unknown>> = {
+  code: (d) => ({ code: d }),
+  title: (d) => ({ title: d }),
+  status: (d) => ({ status: d }),
+  priority: (d) => ({ priority: d }),
+  createdAt: (d) => ({ createdAt: d }),
+  updatedAt: (d) => ({ updatedAt: d }),
+  employee: (d) => ({ employee: { name: d } }),
+  sectorName: (d) => ({ sector: { name: d } }),
+  technician: (d) => ({ technician: { name: d } }),
+};
+
+export async function listarPagina(user: SessionUser, query: PaginationQuery) {
+  const where = filtroPara(user, query.q, query.estado, {
+    employeeId: query.employeeId,
+    equipmentId: query.equipmentId,
+  });
+  const orderBy = ordenar(ORDEN, query.sort, query.dir, { createdAt: 'desc' });
+  const { items, total } = await repo.findPage(where, saltear(query.page, query.pageSize), query.pageSize, orderBy);
+  return armarPagina(items, total, query.page, query.pageSize);
+}
+
+// Numeros del tablero, calculados por la base y no por el navegador.
+export async function estadisticas(user: SessionUser) {
+  const where = filtroPara(user);
+  const [porEstado, porPrioridad] = await Promise.all([repo.contarPorEstado(where), repo.contarPorPrioridad(where)]);
+
+  const estados: Record<string, number> = {};
+  for (const fila of porEstado) estados[fila.status] = fila._count._all;
+
+  const prioridades: Record<string, number> = {};
+  for (const fila of porPrioridad) prioridades[fila.priority] = fila._count._all;
+
+  const total = Object.values(estados).reduce((a, b) => a + b, 0);
+  const cerrados = ['Resuelto', 'Cerrado', 'Cancelado'];
+  const abiertos = Object.entries(estados)
+    .filter(([nombre]) => !cerrados.includes(nombre))
+    .reduce((a, [, n]) => a + n, 0);
+
+  return {
+    total,
+    abiertos,
+    criticos: prioridades['Crítica'] ?? 0,
+    enProceso: estados['En proceso'] ?? 0,
+    esperando: Object.entries(estados)
+      .filter(([nombre]) => nombre.startsWith('Esperando'))
+      .reduce((a, [, n]) => a + n, 0),
+    resueltos: (estados['Resuelto'] ?? 0) + (estados['Cerrado'] ?? 0),
+    estados,
+    prioridades,
+  };
 }
 
 export async function getById(user: SessionUser, id: string) {

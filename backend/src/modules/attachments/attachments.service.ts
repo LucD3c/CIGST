@@ -6,6 +6,8 @@ import { ROLES } from '../../middleware/rbac.middleware';
 import type { SessionUser } from '../auth/auth.service';
 import * as repo from './attachments.repository';
 import { sniffMimeType, deleteFileQuiet, filePathFor } from './attachments.storage';
+import { comprimirImagen } from './attachments.imagen';
+import { invalidarCacheDisco } from '../../maintenance/disco.service';
 
 const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 h
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // cada 6 h
@@ -22,13 +24,36 @@ export async function register(file: Express.Multer.File, userId: string) {
       `"${file.originalname}" no es un archivo válido. Se aceptan imágenes (PNG, JPG, GIF, WEBP), PDF y planillas (XLSX, XLS, CSV).`,
     );
   }
-  return repo.create({
-    storedName: file.filename,
-    originalName: file.originalname.slice(0, 255),
-    mimeType,
-    size: file.size,
+  // Red de contencion del lado del servidor: el navegador ya comprime antes de
+  // subir, pero esa compresion se saltea pegandole directo a la API. Esta
+  // pasada corre siempre, venga el archivo de donde venga.
+  let storedName = file.filename;
+  let tipoFinal = mimeType;
+  let size = file.size;
+  let originalName = file.originalname.slice(0, 255);
+
+  const comprimida = await comprimirImagen(storedName, mimeType, size);
+  if (comprimida) {
+    storedName = comprimida.storedName;
+    tipoFinal = comprimida.mimeType;
+    size = comprimida.size;
+    // El nombre visible acompania al formato real, para que al descargarlo el
+    // archivo tenga la extension que le corresponde.
+    originalName = `${originalName.replace(/\.[^.]+$/, '')}.webp`.slice(0, 255);
+  }
+
+  const creado = await repo.create({
+    storedName,
+    originalName,
+    mimeType: tipoFinal,
+    size,
     uploadedById: userId,
   });
+
+  // El total en disco cambio: el proximo control de espacio tiene que ver el
+  // numero real, no uno cacheado.
+  invalidarCacheDisco();
+  return creado;
 }
 
 // Valida que los ids sean adjuntos propios y todavia sin vincular. Devuelve
@@ -186,6 +211,7 @@ export async function cleanupOrphans() {
     if (!orphans.length) return 0;
     for (const orphan of orphans) deleteFileQuiet(orphan.storedName);
     await repo.deleteMany(orphans.map((o) => o.id));
+    invalidarCacheDisco();
     logger.info({ count: orphans.length }, 'Adjuntos sueltos eliminados');
     return orphans.length;
   } catch (err) {

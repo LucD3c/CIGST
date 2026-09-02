@@ -25,6 +25,37 @@ export function findMany(q?: string) {
   });
 }
 
+// Filtro de busqueda compartido entre el listado paginado y su conteo.
+export function filtroBusqueda(q?: string) {
+  return {
+    ...activeFilter,
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { email: { contains: q, mode: 'insensitive' as const } },
+            { sector: { name: { contains: q, mode: 'insensitive' as const } } },
+            { extension: { contains: q, mode: 'insensitive' as const } },
+            { code: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  };
+}
+
+export async function findPage(
+  where: Record<string, unknown>,
+  skip: number,
+  take: number,
+  orderBy: Record<string, unknown>,
+) {
+  const [items, total] = await Promise.all([
+    prisma.employee.findMany({ where, include: { sector: true }, orderBy, skip, take }),
+    prisma.employee.count({ where }),
+  ]);
+  return { items, total };
+}
+
 export function findById(id: string) {
   return prisma.employee.findFirst({
     where: { id, ...activeFilter },
@@ -37,7 +68,7 @@ export function findById(id: string) {
 }
 
 export async function create(data: CreateEmployeeInput) {
-  const code = await nextCode('EMP', () => prisma.employee.count());
+  const code = await nextCode('EMP', async (c) => (await prisma.employee.count({ where: { code: c } })) > 0);
   return prisma.employee.create({ data: { ...data, code } });
 }
 

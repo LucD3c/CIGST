@@ -1,6 +1,7 @@
 import type { CookieOptions, Request, Response } from 'express';
 import { env } from '../../config/env';
 import * as authService from './auth.service';
+import { direccionDe } from './auth.red';
 import { asyncHandler } from '../../utils/asyncHandler';
 import type { LoginInput } from './auth.schema';
 
@@ -41,4 +42,12 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 export const me = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) return res.status(200).json({ user: null });
   res.status(200).json({ user: await withEmployeeContext(req.user) });
+});
+
+// Direccion de red de la maquina que hace el pedido. No recibe ningun
+// parametro a proposito: no hay forma de pedir la direccion de otra persona.
+// Ver el comentario largo en auth.red.ts.
+export const miIp = asyncHandler(async (req: Request, res: Response) => {
+  const info = direccionDe(req);
+  res.json({ red: info });
 });

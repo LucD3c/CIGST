@@ -24,6 +24,35 @@ export function findMany(q?: string) {
   });
 }
 
+export function filtroBusqueda(q?: string) {
+  return {
+    ...activeFilter,
+    ...(q
+      ? {
+          OR: [
+            { model: { contains: q, mode: 'insensitive' as const } },
+            { type: { contains: q, mode: 'insensitive' as const } },
+            { code: { contains: q, mode: 'insensitive' as const } },
+            { sector: { name: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {}),
+  };
+}
+
+export async function findPage(
+  where: Record<string, unknown>,
+  skip: number,
+  take: number,
+  orderBy: Record<string, unknown> | Record<string, unknown>[],
+) {
+  const [items, total] = await Promise.all([
+    prisma.equipment.findMany({ where, include: { sector: true }, orderBy, skip, take }),
+    prisma.equipment.count({ where }),
+  ]);
+  return { items, total };
+}
+
 export function findById(id: string) {
   return prisma.equipment.findFirst({
     where: { id, ...activeFilter },
@@ -45,8 +74,24 @@ export function findBySector(sectorId: string) {
 }
 
 export async function create(data: CreateEquipmentInput) {
-  const code = await nextCode('EQ', () => prisma.equipment.count());
-  return prisma.equipment.create({ data: { ...data, code, status: 'Activo' }, include: { sector: true } });
+  // Si vino un codigo escrito a mano se respeta tal cual; si no, lo genera la
+  // plataforma salteando los numeros que ya esten ocupados por codigos manuales.
+  const { code: codigoPropio, ...resto } = data;
+  const code =
+    codigoPropio && codigoPropio.trim()
+      ? codigoPropio.trim()
+      : await nextCode('EQ', async (c) => (await prisma.equipment.count({ where: { code: c } })) > 0);
+  return prisma.equipment.create({ data: { ...resto, code, status: 'Activo' }, include: { sector: true } });
+}
+
+// Existe otro equipo (vivo o dado de baja) con ese codigo? Se consulta antes de
+// guardar para poder dar un mensaje claro en vez de un error de base de datos.
+export async function codigoOcupado(code: string, excepto?: string) {
+  const encontrado = await prisma.equipment.findFirst({
+    where: { code, ...(excepto ? { NOT: { id: excepto } } : {}) },
+    select: { id: true, deletedAt: true, model: true, type: true },
+  });
+  return encontrado;
 }
 
 export function update(id: string, data: UpdateEquipmentInput & { changeLog?: string }) {

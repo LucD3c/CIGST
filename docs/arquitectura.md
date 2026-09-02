@@ -414,3 +414,112 @@ Criterio repetido en todas las entregas antes de dar por cerrado:
    externas) y pruebas de XSS con payloads reales.
 4. Revisión de logs de los 3 servicios (sin errores ni warnings).
 5. Reset a estado semilla limpio y commits organizados por área.
+
+---
+
+## Escala: qué cambia cuando la plataforma lleva años en uso
+
+Las decisiones de esta sección existen por una sola razón: lo que funciona
+perfecto con 26 tickets puede volverse inusable con quince mil, y eso pasa de
+a poco, sin que nadie lo note hasta que ya molesta.
+
+### Listados paginados (`utils/pagination.ts`)
+
+Antes cada listado devolvía la tabla **entera** con todas sus relaciones, en
+cada carga de pantalla. El servidor ahora manda de a una página y dice cuántos
+hay en total.
+
+- **El tope de 200 filas por página no es negociable desde el cliente.** Aunque
+  alguien pida `pageSize=100000`, el servidor entrega 200. Es lo que garantiza
+  que ninguna consulta pueda crecer sin límite con el paso de los años.
+- **El orden lo pide el cliente pero lo decide el servidor**, a través de un
+  mapa explícito por módulo (`ORDEN`). Una columna que no está en el mapa cae
+  al orden por defecto: el cliente no puede ordenar por un campo arbitrario ni
+  inyectar nada en la consulta.
+- **El filtro de estado de los tickets pasó al servidor.** Con la lista
+  paginada, filtrar en el navegador daría "los activos que hay entre los
+  primeros 50", no "los activos".
+
+### Orden alfabético: se resolvió en la base, no en Node
+
+El orden correcto para el castellano se hacía reordenando en Node **después**
+de traer la tabla completa. Ese truco deja de servir en cuanto se pagina: no se
+puede ordenar bien un universo del que solo se trajo una página.
+
+La solución definitiva fue marcar las columnas de texto con la colación
+española (`es-x-icu`) en Postgres, con lo cual el orden correcto sale
+directamente de la consulta:
+
+```
+sin colación:  Nunez | Ortiz | Zapata | alvarez | Álvarez | Ñandú
+con colación:  alvarez | Álvarez | Nunez | Ñandú | Ortiz | Zapata
+```
+
+Se usa el español genérico y no el de un país puntual, para que la plataforma
+sirva igual en cualquier empresa de habla hispana.
+
+### Códigos correlativos atómicos (`utils/codeGenerator.ts`)
+
+`TK-001`, `EMP-001`, `EQ-001` se generaban con `count() + 1`, que tenía una
+condición de carrera real: dos altas simultáneas leían el mismo total, armaban
+el mismo código y la segunda moría contra el índice único devolviendo un 500
+genérico — la persona perdía lo que había escrito.
+
+Ahora el número lo entrega Postgres con un `INSERT … ON CONFLICT DO UPDATE …
+RETURNING` sobre una tabla `counters`, que es atómico por definición. Además se
+comprueba que el código no esté ocupado, lo que permite convivir con los
+códigos de equipo escritos a mano.
+
+### Retención de datos sin uso (`maintenance/retencion.service.ts`)
+
+Corre sola cada 6 horas y también a pedido desde el instalador. La regla que
+manda sobre todo lo demás: **no se pierde nada que le sirva a nadie**. Solo se
+eliminan sesiones vencidas, intentos de login viejos, avisos ya leídos, acuses
+de publicaciones dadas de baja y archivos físicos sin ninguna fila que los
+referencie. Ni un ticket, ni un mensaje, ni un archivo alcanzable — tampoco los
+dados de baja, que se conservan para siempre.
+
+### Control de espacio (`maintenance/disco.service.ts`)
+
+El volumen de adjuntos comparte disco con la base de datos: si se llenara,
+Postgres dejaría de poder escribir y se caería la plataforma entera. Hay dos
+frenos, y los dos actúan antes de llegar a ese punto — un tope propio para los
+adjuntos y un margen mínimo de espacio libre real. Cuando se frena una subida
+**no se pierde nada de lo ya guardado**: lo único que pasa es que no entran
+archivos nuevos.
+
+### Compresión de imágenes en el servidor (`attachments.imagen.ts`)
+
+El navegador ya comprimía antes de subir, pero esa compresión se saltea
+pegándole directo a la API. La pasada del servidor corre **siempre**, venga el
+archivo de donde venga. No toca PDF, planillas ni GIF (perdería la animación),
+y si comprimir no achica nada conserva el original.
+
+Medición real sobre una captura de pantalla: 351 KB → 85 KB, **4,2 veces más
+chica**.
+
+### Búsqueda de artículos indexada
+
+La búsqueda dentro del contenido traía hasta 500 artículos a memoria y los
+filtraba ahí: pasados los 500, los que quedaban afuera **no aparecían nunca**
+en ninguna búsqueda y nadie se enteraba. Ahora hay una columna `search_text`
+con índice GIN (`pg_trgm`), que el backend escribe en cada guardado usando
+`plainTextOf()` — la misma función que **excluye los campos ocultos**, para que
+una contraseña compartida no se pueda encontrar buscándola.
+
+### Un solo proceso: el techo consciente del diseño
+
+El registro de conexiones en tiempo real y los contadores de tráfico viven en
+la memoria del proceso, lo que significa que la plataforma **no puede correr en
+dos procesos a la vez**. Es una decisión, no un descuido: elimina la necesidad
+de un Redis o similar, y para el rango de uso previsto sobra.
+
+Medición con **70 personas trabajando simultáneamente**, sin pausa entre
+acciones (mucho más exigente que el uso real): 70/70 sesiones, 70/70
+conexiones de tiempo real, 2.100 peticiones, **cero errores**, p95 de 853 ms,
+145 peticiones por segundo.
+
+Si algún día hicieran falta más, la salida es una máquina más grande. El día
+que eso no alcance, habría que mover el registro de sockets y los contadores a
+un almacén compartido — pero ese día está bastante más lejos que el horizonte
+de esta plataforma.

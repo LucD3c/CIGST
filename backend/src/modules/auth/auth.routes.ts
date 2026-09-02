@@ -10,3 +10,7 @@ export const authRouter = Router();
 authRouter.post('/login', loginRateLimiter, validate({ body: loginSchema }), authController.login);
 authRouter.post('/logout', requireAuth, authController.logout);
 authRouter.get('/me', requireAuth, authController.me);
+
+// Direccion de red propia, para pasarsela a sistemas o para una conexion VNC.
+// Requiere sesion y solo puede devolver la del propio solicitante.
+authRouter.get('/mi-ip', requireAuth, authController.miIp);

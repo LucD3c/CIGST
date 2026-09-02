@@ -3,9 +3,14 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import * as service from './equipment.service';
 
 export const list = asyncHandler(async (req: Request, res: Response) => {
-  const { q } = req.query as { q?: string };
-  const equipment = await service.list(q);
-  res.json({ equipment });
+  const pagina = await service.listarPagina(req.query as never);
+  res.json({
+    equipment: pagina.items,
+    total: pagina.total,
+    page: pagina.page,
+    pageSize: pagina.pageSize,
+    totalPaginas: pagina.totalPaginas,
+  });
 });
 
 export const getOne = asyncHandler(async (req: Request, res: Response) => {

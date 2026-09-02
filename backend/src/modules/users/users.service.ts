@@ -7,6 +7,7 @@ import * as repo from './users.repository';
 import * as employeesRepo from '../employees/employees.repository';
 import { logoutAllSessionsForUser } from '../auth/auth.service';
 import type { CreateUserInput, UpdateUserInput } from './users.schema';
+import { armarPagina, ordenar, saltear, type PaginationQuery } from '../../utils/pagination';
 
 const SALT_ROUNDS = 12;
 
@@ -36,6 +37,21 @@ async function assertNotLastActiveAdmin(user: { id: string; status: string; role
 
 export async function list() {
   return sortByName(await repo.findMany(), (u) => u.name);
+}
+
+const ORDEN: Record<string, (dir: 'asc' | 'desc') => Record<string, unknown>> = {
+  name: (d) => ({ name: d }),
+  username: (d) => ({ username: d }),
+  status: (d) => ({ status: d }),
+  lastAccessAt: (d) => ({ lastAccessAt: d }),
+  createdAt: (d) => ({ createdAt: d }),
+};
+
+export async function listarPagina(query: PaginationQuery) {
+  const where = repo.filtroBusqueda(query.q);
+  const orderBy = ordenar(ORDEN, query.sort, query.dir, { name: 'asc' });
+  const { items, total } = await repo.findPage(where, saltear(query.page, query.pageSize), query.pageSize, orderBy);
+  return armarPagina(items, total, query.page, query.pageSize);
 }
 
 export async function listTechnicians() {

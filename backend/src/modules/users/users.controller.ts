@@ -2,9 +2,15 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import * as service from './users.service';
 
-export const list = asyncHandler(async (_req: Request, res: Response) => {
-  const users = await service.list();
-  res.json({ users });
+export const list = asyncHandler(async (req: Request, res: Response) => {
+  const pagina = await service.listarPagina(req.query as never);
+  res.json({
+    users: pagina.items,
+    total: pagina.total,
+    page: pagina.page,
+    pageSize: pagina.pageSize,
+    totalPaginas: pagina.totalPaginas,
+  });
 });
 
 export const listTechnicians = asyncHandler(async (_req: Request, res: Response) => {
