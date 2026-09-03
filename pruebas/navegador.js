@@ -75,9 +75,9 @@ const check = (n, c, d = '') => { if (c) { ok++; console.log(`  OK   ${n}`); } e
   check('sin paginador cuando todo entra en una pagina', (await page.locator('#employees-pager .pager').count()) === 0);
 
   // Se fuerza una pagina chica para ejercitar el paginador de verdad.
-  await page.evaluate(() => { pagerDe('employees').pageSize = 3; pagerDe('employees').page = 1; return refreshList('employees'); });
+  await page.evaluate(() => { window.CIGST.pagerDe('employees').pageSize = 3; window.CIGST.pagerDe('employees').page = 1; return window.CIGST.refreshList('employees'); });
   await page.waitForTimeout(900);
-  const totalPersonas = await page.evaluate(() => pagerDe('employees').total);
+  const totalPersonas = await page.evaluate(() => window.CIGST.pagerDe('employees').total);
   check('con paginas de 3 aparece el paginador', (await page.locator('#employees-pager .pager').count()) === 1);
   check('la pagina trae 3 filas', (await page.locator('#employees-table tbody tr').count()) === 3);
   const info1 = await page.locator('.pager-info').textContent();
@@ -105,17 +105,17 @@ const check = (n, c, d = '') => { if (c) { ok++; console.log(`  OK   ${n}`); } e
 
   // El orden pedido al servidor cubre TODAS las personas, no solo la pagina
   const nombresDesc = await page.evaluate(async () => {
-    sortState.employees = { col: 'name', dir: -1 };
-    pagerDe('employees').page = 1; pagerDe('employees').pageSize = 200;
-    await refreshList('employees');
-    return store.employees.map(e => e.name);
+    window.CIGST.sortState.employees = { col: 'name', dir: -1 };
+    window.CIGST.pagerDe('employees').page = 1; window.CIGST.pagerDe('employees').pageSize = 200;
+    await window.CIGST.refreshList('employees');
+    return window.CIGST.E.store.employees.map(e => e.name);
   });
   const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
   const esperadoDesc = [...nombresDesc].sort((a, b) => collator.compare(b, a));
   check('el orden descendente abarca el total y respeta el criterio espaniol', JSON.stringify(nombresDesc) === JSON.stringify(esperadoDesc), `recibido=${nombresDesc.slice(0,3)}`);
-  check('el total no cambia al paginar', totalPersonas === await page.evaluate(() => pagerDe('employees').total));
+  check('el total no cambia al paginar', totalPersonas === await page.evaluate(() => window.CIGST.pagerDe('employees').total));
 
-  await page.evaluate(() => { pagerDe('employees').pageSize = 50; sortState.employees = null; return refreshList('employees'); });
+  await page.evaluate(() => { window.CIGST.pagerDe('employees').pageSize = 50; window.CIGST.sortState.employees = null; return window.CIGST.refreshList('employees'); });
   await page.waitForTimeout(700);
 
   console.log('\n=== 6. Ficha de persona: tickets relacionados desde el servidor ===');
@@ -178,6 +178,14 @@ const check = (n, c, d = '') => { if (c) { ok++; console.log(`  OK   ${n}`); } e
   await page.click('#ip-toggle');
   await page.waitForTimeout(500);
   check('se puede volver a ocultar', await page.locator('#ip-value').isHidden());
+
+  console.log('\n=== 9b. Avisos que tiene que ver un administrador ===');
+  await page.click('[data-view="users"]');
+  await page.waitForSelector('#users-table', { timeout: 10000 });
+  const avisoHttp = await page.locator('.aviso-fuerte').first().textContent().catch(() => '');
+  check('sobre HTTP avisa que la conexion no esta cifrada',
+    /no está cifrada|no esta cifrada/i.test(avisoHttp || ''), (avisoHttp || '').slice(0, 70));
+  check('el aviso explica como resolverlo', /deployment-empresa|COOKIE_SECURE/.test(avisoHttp || ''));
 
   console.log('\n=== 10. Telefono: navegacion y tablas ===');
   const movil = await ctx.newPage();

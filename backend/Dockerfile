@@ -1,5 +1,5 @@
 # Contexto de build: la raiz del repositorio (necesita backend/ y los archivos
-# estaticos del frontend index.html/app.js/styles.css/fonts que viven en la raiz).
+# estaticos del frontend index.html/styles.css/js/fonts que viven en la raiz).
 # Version de Node fijada (no un tag flotante): actualizarla es una decision
 # consciente, no un efecto colateral de un rebuild.
 
@@ -34,7 +34,8 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 COPY --from=builder /app/dist ./dist
 COPY backend/prisma ./prisma
 
-COPY index.html app.js styles.css ./public/
+COPY index.html styles.css ./public/
+COPY js ./public/js
 COPY fonts ./public/fonts
 
 # Carpeta de adjuntos: se crea aca para que el volumen que compose monta

@@ -11,7 +11,7 @@
 | Backend | Node.js 20 + TypeScript + Express 4 |
 | Tiempo real | WebSocket (`ws`) sobre el mismo servidor HTTP |
 | Base de datos | PostgreSQL 16 (vía Prisma ORM 5) |
-| Frontend | HTML/CSS/JS vanilla en un solo archivo (`app.js`), sin framework ni build |
+| Frontend | HTML/CSS/JS vanilla en módulos ES nativos (`js/`), sin framework ni build |
 | Despliegue | Docker Compose (3 servicios: `db`, `migrate`, `app`) |
 
 Ninguna parte de la plataforma hace llamadas a internet en tiempo de
@@ -38,7 +38,7 @@ backend/
   Dockerfile     multi-stage (builder + runtime, usuario no-root)
 docker-compose.yml
 install.sh / install.ps1 / install.bat    instalador por consola
-index.html / app.js / styles.css / fonts/ interfaz (servida por el backend)
+index.html / styles.css / js/ / fonts/  interfaz (servida por el backend)
 docs/                                     esta documentación
 ```
 
@@ -72,12 +72,12 @@ Las versiones de las imágenes están fijadas (`postgres:16.14-alpine`,
 `node:20.20.2-alpine` en el Dockerfile): actualizar es una decisión
 consciente, no un efecto colateral de un rebuild.
 
-## Caché de los estáticos (`app.js` / `styles.css`)
+## Caché de los estáticos (`js/` / `styles.css`)
 
 `express.static` responde estos archivos con `Cache-Control: no-cache`
 (`app.ts`), no con el default del navegador. La diferencia importa acá: sin
 esa cabecera, un navegador puede quedarse con una versión vieja de
-`styles.css` mientras ya descargó el `app.js` nuevo tras una actualización de
+`styles.css` mientras ya descargó los módulos nuevos tras una actualización de
 la plataforma (caché heurística, cada archivo revalida en momentos
 distintos) — la interfaz queda con clases nuevas pero estilos viejos, se ve
 rota. `no-cache` no significa "no guardar": el navegador conserva el archivo
@@ -146,7 +146,7 @@ de que el usuario fuerce una recarga.
   `ORDER BY` de Postgres compara por código de carácter y deja `ZZ` antes
   que `Zulema`; para listas que lee una persona eso se ve desordenado. Se
   aplica en employees, users, sectors, equipment, el directorio del chat y
-  `form-options`. `app.js` usa el mismo criterio al ordenar por columna.
+  `form-options`. La interfaz usa el mismo criterio al ordenar por columna.
 - **Borrados**: `DELETE` en `/employees`, `/equipment`, `/sectors` (todos
   admin-only) y `/users`. Son borrados lógicos, así que los tickets
   conservan el nombre de la persona, el equipo y el sector aunque se hayan
@@ -181,7 +181,7 @@ binario nativo: suma peso a la imagen, ata el build a la plataforma y le pone
 el trabajo de CPU justo al equipo que menos tiene para dar.
 
 Acá se hace **en el navegador**, antes de subir (`comprimirImagen` en
-`app.js`): se decodifica con `createImageBitmap`, se reescala a 1600 px de lado
+`js/adjuntos.js`): se decodifica con `createImageBitmap`, se reescala a 1600 px de lado
 mayor sobre un `canvas` y se reencodea a WebP con calidad 0.82 (con caída a
 JPEG si el navegador no lo soporta).
 
@@ -523,3 +523,72 @@ Si algún día hicieran falta más, la salida es una máquina más grande. El d�
 que eso no alcance, habría que mover el registro de sockets y los contadores a
 un almacén compartido — pero ese día está bastante más lejos que el horizonte
 de esta plataforma.
+
+---
+
+## La interfaz, repartida en módulos (`js/`)
+
+Durante mucho tiempo toda la interfaz vivió en un único `app.js` de 3.475
+líneas. Funcionaba, pero encontrar algo ahí adentro costaba, y ese costo sube
+solo con el tiempo.
+
+Ahora son **18 archivos**, ninguno de más de 480 líneas:
+
+| Archivo | Qué hace | Líneas |
+|---|---|---|
+| `estado.js` | Estado compartido, en un único objeto | 36 |
+| `util.js` | Escapado de HTML, insignias, roles | 39 |
+| `nucleo.js` | Cliente de la API y manejo de errores | 52 |
+| `normalizar.js` | Traduce las respuestas del servidor a la forma que usa la pantalla | 64 |
+| `notificaciones.js` | La campanita | 85 |
+| `datos.js` | Qué se carga en cada pantalla | 106 |
+| `armazon.js` | Login, barra lateral, menú del celular, botón Mi IP | 113 |
+| `app.js` | Router y arranque | 121 |
+| `adjuntos.js` | Compresión de imágenes, subidas, pegar con Ctrl+V | 183 |
+| `listas.js` | Tablas, orden por columna y vistas de listado | 198 |
+| `paginacion.js` | Paginado, filtros y redibujado de listas | 205 |
+| `tiemporeal.js` | WebSocket y reconexión | 235 |
+| `feed.js` | Novedades | 254 |
+| `conocimiento.js` | Bases de conocimiento | 273 |
+| `chat.js` | Mensajes 1 a 1 y grupos | 350 |
+| `formularios.js` | Altas, ediciones y bajas | 365 |
+| `bloques.js` | Renderizado y editor de bloques de contenido | 445 |
+| `correo.js` | Webmail | 476 |
+
+### Sin compilar nada, a propósito
+
+Son **módulos ES nativos**, los que el navegador entiende sin ayuda:
+`<script type="module" src="js/app.js">`. No hay webpack, ni Vite, ni un paso
+de `npm run build` para el frontend. Esto no es nostalgia: es lo que permite que
+instalar la plataforma siga siendo levantar Docker y nada más, y que dentro de
+cinco años cualquiera pueda abrir un archivo, entenderlo y cambiarlo sin
+reconstruir una cadena de herramientas que para entonces estará desactualizada.
+
+### El estado compartido
+
+Un `export let` de un módulo ES se puede **leer** desde otro módulo pero no se
+puede **reasignar** desde afuera, y acá hay decenas de lugares que escriben
+estado ajeno: el router cambia de vista, cerrar sesión limpia el chat y el
+correo, el WebSocket agrega mensajes. Por eso los 23 valores que de verdad
+comparten varios módulos viven juntos en un objeto (`estado.js`), que sí se
+muta desde donde sea.
+
+Los otros 21 valores mutables **se quedaron dentro del módulo que los usa**: si
+solo le importan al correo, no tienen por qué ser visibles para el resto.
+
+### Cómo se ordenaron las dependencias
+
+`estado.js` no importa nada de nadie, y `nucleo.js` y `util.js` son las bases
+sobre las que se apoya todo lo demás. Las pantallas dependen de esas tres, no
+al revés. Hay ciclos entre las pantallas y el router (una vista llama a
+`render`, el router dibuja la vista), y eso es correcto: los módulos ES los
+resuelven sin problema mientras las llamadas ocurran al usar la aplicación y no
+al cargarla, que es exactamente el caso.
+
+### La superficie de pruebas
+
+`window.CIGST` expone unas pocas funciones internas para que las pruebas
+automatizadas puedan llevar la interfaz a estados que a mano costaría armar
+(por ejemplo forzar páginas de tres filas para ejercitar el paginador sin
+cargar doscientas personas). No abre ninguna puerta: cualquier código que corra
+en la página ya podría llamar a esas funciones, porque vive en el mismo origen.

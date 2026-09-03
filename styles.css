@@ -257,3 +257,15 @@ textarea.blk-in{resize:vertical;line-height:1.5}
 /* Los campos del formulario se alinean arriba: si uno lleva una línea de ayuda
    debajo, su vecino de la derecha no tiene por qué bajar con él. */
 .form-grid{align-items:start}
+
+/* Aviso destacado de algo que el administrador tiene que saber sí o sí
+   (conexión sin cifrar, casillas que quedaron ilegibles). No es un error de la
+   plataforma, así que no va en rojo; es algo que hay que atender. */
+.aviso-fuerte{background:var(--yellow-d);border:1px solid #6b5222;border-left:3px solid var(--yellow);
+  color:#f2dcae;border-radius:8px;padding:13px 16px;margin:0 0 18px;line-height:1.55;font-size:13px}
+.aviso-fuerte strong{color:#ffe6b0;display:block;margin-bottom:3px}
+.aviso-fuerte .mono{font:600 11.5px 'JetBrains Mono';background:#00000030;padding:1px 5px;border-radius:4px}
+
+/* Distintivo del proveedor de correo habilitado para alcanzar la red interna. */
+.etiqueta-interna{display:inline-block;background:var(--yellow-d);color:#f0c776;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.4px;border-radius:4px;padding:2px 6px;vertical-align:1px}

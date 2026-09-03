@@ -4,9 +4,9 @@
 > contra la plataforma corriendo**. Cada línea de las tablas corresponde a una
 > comprobación ejecutada, no a una buena intención.
 >
-> **104 controles** en total: 79 de las rondas anteriores (secciones A a J) y
-> **25 nuevos** (sección K), verificados en la ronda de correcciones sobre la
-> plataforma en funcionamiento.
+> **108 controles** en total: 79 de las rondas anteriores (secciones A a J) y
+> **29** en la sección K, verificados sobre la plataforma en funcionamiento
+> durante las rondas de corrección.
 >
 > Última ejecución: sobre la versión con listados paginados, retención de datos
 > sin uso, control de espacio en disco, compresión de imágenes en el servidor,
@@ -236,6 +236,10 @@ Todos verificados contra la plataforma en funcionamiento, no sobre el papel.
 | K23 | La limpieza de datos sin uso **no borra nada recuperable** | Se ejecutó sobre la base real: eliminó 140 sesiones vencidas y 105 acuses de publicaciones dadas de baja; tickets, mensajes, adjuntos y artículos intactos |
 | K24 | Los archivos huérfanos se borran con **doble verificación** y 24 h de margen | Imposible pisar una subida en curso |
 | K25 | Prueba de carga con **70 personas simultáneas** | 70/70 sesiones, 70/70 conexiones de tiempo real, 2.100 peticiones, **cero errores**, p95 de 853 ms |
+| K26 | La plataforma detecta **por adelantado** las casillas cuya contraseña ya no se puede descifrar | Se levantó una instancia con otra `MAIL_ENCRYPTION_KEY` sobre la misma base: informó 1 casilla ilegible y la marcó individualmente |
+| K27 | El registro de conexiones en tiempo real **no pierde memoria** | 200 conexiones abiertas y cerradas: la memoria del contenedor pasó de 44,9 MB a 45,1 MB |
+| K28 | Un administrador ve el aviso de conexión sin cifrar **dentro de la plataforma** | Aparece en el Panel administrador sobre HTTP; no aparece por HTTPS ni desde `localhost` |
+| K29 | Los proveedores de correo habilitados para la red interna se distinguen a simple vista | Distintivo **red interna** en la lista de proveedores |
 
 ---
 

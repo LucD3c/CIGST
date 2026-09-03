@@ -81,7 +81,7 @@ Protecciones específicas del chat:
 - HSTS y `upgrade-insecure-requests` solo se activan con
   `COOKIE_SECURE=true` (cuando hay HTTPS delante) — en HTTP interno plano
   romperían la carga de la app.
-- `app.js`/`styles.css` se sirven con `Cache-Control: no-cache`: el
+- Los módulos de `js/` y `styles.css` se sirven con `Cache-Control: no-cache`: el
   navegador siempre revalida contra el servidor antes de usar una copia
   guardada (barato en LAN, responde `304` si no cambió nada). Evita que,
   tras actualizar la plataforma, alguien quede con una mezcla de archivos
@@ -345,3 +345,68 @@ tocar el firewall de entrada ni exponer nada.
 > de pacientes. La plataforma no los guarda —pide al proveedor lo que necesita
 > y lo descarta—, pero conviene decidirlo con quien lleve el tema de protección
 > de datos en la empresa antes de configurarlo.
+
+---
+
+## Avisos que la plataforma le da al administrador
+
+Los registros de Docker no los mira nadie. Por eso las dos cosas que un
+administrador necesita saber sí o sí aparecen **dentro de la plataforma**.
+
+### Conexión sin cifrar
+
+Si la plataforma se usa por HTTP plano, el Panel administrador lo dice:
+
+![Aviso de conexión sin cifrar](img/aviso-conexion.png)
+
+No es un error: en una red interna cerrada trabajar por HTTP es una decisión
+razonable, y por eso la plataforma no se niega a funcionar. Pero conviene que
+quien administra lo sepa y lo decida, en vez de asumir sin darse cuenta que el
+tráfico va cifrado. La comprobación la hace el navegador (`location.protocol`),
+que es donde la diferencia es real, y no aparece cuando se entra desde la propia
+máquina (`localhost`), porque ahí el tráfico no sale a la red.
+
+### Casillas de correo que quedaron ilegibles
+
+Las contraseñas de las casillas se guardan cifradas con `MAIL_ENCRYPTION_KEY`.
+Si esa clave cambia —lo típico: se restaura una copia de seguridad en una
+instalación nueva— esas contraseñas dejan de poder leerse.
+
+Antes eso se descubría **casilla por casilla**, cada vez con un error, sin
+entender el motivo. Ahora la pantalla de Correo lo dice una sola vez y por
+adelantado, aclarando lo importante: **no se perdió ningún correo**, porque los
+mensajes viven en el servidor de correo y no en la plataforma. Lo único que hay
+que hacer es volver a escribir la contraseña de cada casilla.
+
+La comprobación es un intento de descifrado real sobre cada credencial
+guardada; AES-GCM autentica, así que una clave equivocada falla en vez de
+devolver basura.
+
+### Proveedores de correo que alcanzan la red interna
+
+La opción que permite a un proveedor conectarse a direcciones de la red interna
+(necesaria para un servidor de correo propio, innecesaria para Gmail o Outlook)
+pide una confirmación explícita al activarse, y los proveedores que la tienen
+puesta se muestran con un distintivo **red interna** en la lista. Así no hay que
+abrir cada uno para enterarse de cuáles la tienen.
+
+---
+
+## Una dependencia forzada a mano (`overrides`)
+
+`backend/package.json` tiene un bloque `overrides` que fija `qs` en `^6.16.0`.
+
+`qs` es la librería que interpreta los parámetros de una URL, y la usa Express
+en **cada** pedido — incluidos todos los listados paginados. Las versiones hasta
+la 6.15.3 tienen dos fallas: se puede saltear el límite de elementos de un
+arreglo, y se puede provocar una denegación de servicio. Express 4.22.2, que es
+la última de su rama, todavía pide una versión afectada.
+
+Como `npm audit fix` no puede resolverlo solo (no hay una versión de Express que
+lo arregle), se fuerza la versión corregida. Es un salto menor dentro de la
+misma rama, compatible hacia atrás, y quedó verificado con la batería completa:
+106 comprobaciones en verde, incluidas todas las de paginación y filtros, que
+son justamente las que dependen de esa librería.
+
+Conviene revisar este bloque cada tanto: el día que Express incorpore la versión
+corregida, el `override` deja de hacer falta.

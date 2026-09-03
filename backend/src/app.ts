@@ -21,7 +21,7 @@ export function createApp() {
   // los despliegues de esta plataforma son HTTP simple dentro de la red
   // interna (sin certificado); si Helmet manda igual el header
   // Strict-Transport-Security, el navegador fuerza HTTPS en los pedidos
-  // siguientes (styles.css/app.js) y la app deja de cargar. Se activa solo
+  // siguientes (styles.css y los modulos de js/) y la app deja de cargar. Se activa solo
   // cuando COOKIE_SECURE=true, es decir, cuando ya hay HTTPS delante (un
   // proxy reverso interno).
   app.use(
@@ -39,7 +39,7 @@ export function createApp() {
           frameAncestors: ["'self'"],
           // Helmet la agrega por defecto; fuerza al navegador a pedir HTTPS
           // incluso en un despliegue HTTP simple y rompe la carga de
-          // styles.css/app.js. Solo tiene sentido si COOKIE_SECURE=true.
+          // styles.css y los modulos de js/. Solo tiene sentido si COOKIE_SECURE=true.
           upgradeInsecureRequests: env.COOKIE_SECURE ? [] : null,
         },
       },
@@ -58,7 +58,7 @@ export function createApp() {
   const staticDir = path.isAbsolute(env.STATIC_DIR) ? env.STATIC_DIR : path.join(__dirname, '..', env.STATIC_DIR);
   // no-cache != no guardar: el navegador conserva el archivo pero SIEMPRE
   // revalida con el servidor (304 si no cambio, baratisimo en LAN). Sin esto,
-  // tras actualizar la plataforma un navegador podia quedarse con un app.js
+  // tras actualizar la plataforma un navegador podia quedarse con un modulo
   // nuevo y un styles.css viejo (cache heuristico) y la interfaz se rompia.
   app.use(
     express.static(staticDir, {

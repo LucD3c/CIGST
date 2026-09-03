@@ -25,11 +25,12 @@ NET=$(docker network ls --format '{{.Name}}' | grep cigst | head -1)
 
 ## Las suites
 
-### `api.js` — comportamiento del servidor (33 comprobaciones)
+### `api.js` — comportamiento del servidor (36 comprobaciones)
 
 Salud, sesión, paginación, orden alfabético español, números del tablero,
 filtros, códigos propios de equipos, condiciones de carrera en los códigos
-correlativos, política de contraseñas y búsqueda.
+correlativos, política de contraseñas, búsqueda, y el aviso por adelantado de
+casillas de correo cuya contraseña ya no se puede descifrar.
 
 ```bash
 docker run --rm --network "$NET" -e ADMIN_PASS="$PASS" \
@@ -60,12 +61,16 @@ docker run --rm --network "$NET" -e ADMIN_PASS="$PASS" \
   -v "$PWD/pruebas/imagenes.js:/t.js" node:20.20.2-alpine node /t.js
 ```
 
-### `navegador.js` — la interfaz de verdad (50 comprobaciones)
+### `navegador.js` — la interfaz de verdad (52 comprobaciones)
 
 Abre un navegador real, entra, recorre las nueve pantallas, ordena, filtra,
 pagina, crea y edita un equipo con código propio, muestra y oculta la dirección
-de red, y repite la navegación en una pantalla de teléfono. Termina revisando
-que no haya quedado ningún error de JavaScript en la consola.
+de red, comprueba el aviso de conexión sin cifrar del Panel administrador, y
+repite la navegación en una pantalla de teléfono. Termina revisando que no haya
+quedado ningún error de JavaScript en la consola.
+
+Esta suite usa `window.CIGST`, la superficie mínima que la interfaz expone para
+poder llevarla a estados que a mano costaría armar (ver `docs/arquitectura.md`).
 
 ```bash
 docker run --rm --network "$NET" -e ADMIN_PASS="$PASS" \

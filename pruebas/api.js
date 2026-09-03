@@ -116,6 +116,19 @@ async function api(ruta, opts = {}) {
   const busq = await api('/knowledge/search?q=re');
   check('la busqueda responde', busq.status === 200, `status=${busq.status}`);
 
+  console.log('\n=== 11. Correo: aviso por adelantado de credenciales ilegibles ===');
+  const estadoCorreo = await api('/mail/status');
+  check('el estado del correo informa cuantas casillas quedaron ilegibles',
+    estadoCorreo.status === 200 && typeof estadoCorreo.body.casillasIlegibles === 'number',
+    JSON.stringify(estadoCorreo.body).slice(0, 160));
+  check('con la clave correcta no hay ninguna ilegible',
+    estadoCorreo.body.casillasIlegibles === 0, String(estadoCorreo.body?.casillasIlegibles));
+
+  const cuentas = await api('/mail/accounts');
+  check('cada casilla informa si su contrasena se puede leer',
+    cuentas.status === 200 && (cuentas.body.accounts || []).every(c => typeof c.credencialLegible === 'boolean'),
+    JSON.stringify(cuentas.body).slice(0, 160));
+
   console.log('\n=== RESUMEN ===');
   console.log(`${ok} correctas, ${fallo} fallidas`);
   if (fallos.length) { console.log('\nFallas:'); fallos.forEach(f => console.log(' - ' + f)); }

@@ -2,8 +2,13 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import * as service from './mail.service';
 
-export const status = asyncHandler(async (_req: Request, res: Response) => {
-  res.json(service.estado());
+export const status = asyncHandler(async (req: Request, res: Response) => {
+  const base = service.estado();
+  // Se informa de una sola vez cuantas casillas quedaron con la contrasena
+  // ilegible (tipicamente tras restaurar una copia con otra clave de cifrado),
+  // para poder avisarlo por adelantado en vez de fallar de a una.
+  const ilegibles = base.disponible ? await service.casillasIlegibles(req.user!) : 0;
+  res.json({ ...base, casillasIlegibles: ilegibles });
 });
 
 /* ---------- Proveedores ---------- */

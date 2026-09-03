@@ -204,7 +204,47 @@ export async function listAccounts(user: SessionUser) {
     include: { provider: { select: { id: true, name: true } } },
     orderBy: [{ ownerUserId: 'desc' }, { email: 'asc' }],
   });
-  return filas.map(serializar);
+  // Se marca cada casilla segun se pueda o no leer su contrasena guardada.
+  //
+  // El caso que esto resuelve es concreto y perfectamente esperable: se
+  // restaura una copia de seguridad en una instalacion nueva, donde la clave de
+  // cifrado (MAIL_ENCRYPTION_KEY) es otra. Sin este control, la persona se
+  // enteraba casilla por casilla, cada vez con un error, sin entender por que.
+  // Ahora la interfaz lo dice una sola vez, claro y por adelantado.
+  return filas.map((f) => ({ ...serializar(f), credencialLegible: credencialLegible(f.secretCipher) }));
+}
+
+/** True si la contrasena guardada se puede descifrar con la clave actual. */
+function credencialLegible(cipher: string | null): boolean {
+  if (!cipher) return false;
+  try {
+    cripto.descifrar(cipher);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cuantas casillas quedaron ilegibles con la clave de cifrado actual. Lo usa la
+ * pantalla de Correo para avisar de una sola vez, en vez de fallar de a una.
+ */
+export async function casillasIlegibles(user: SessionUser): Promise<number> {
+  if (!cripto.correoDisponible()) return 0;
+  const sector = await sectorDe(user);
+  const filas = await prisma.mailAccount.findMany({
+    where: {
+      ...activo,
+      status: 'Activo',
+      OR: [
+        { ownerUserId: user.id },
+        { ownerUserId: null, access: { some: { userId: user.id } } },
+        ...(sector ? [{ ownerUserId: null, access: { some: { sectorId: sector } } }] : []),
+      ],
+    },
+    select: { secretCipher: true },
+  });
+  return filas.filter((f) => !credencialLegible(f.secretCipher)).length;
 }
 
 /** Todas las casillas, para la pantalla de administracion. Sin credenciales. */
