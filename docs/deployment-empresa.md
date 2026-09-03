@@ -145,14 +145,20 @@ sobre HTTP): no hay nada que configurar de ese lado.
 **Esto es importante y es fácil de pasar por alto.** Sin ello, Express ve todos
 los pedidos como si vinieran de una sola IP: la del proxy.
 
-Los límites de tráfico que protegen el login se cuentan **por IP**: 10 intentos
-cada 5 minutos. Detrás de un proxy mal configurado, esos 10 intentos se
-reparten entre *toda la empresa* — la undécima persona que entra a la mañana
-queda bloqueada aunque haya escrito bien su contraseña, y en el registro figura
-la IP del proxy en vez de la del equipo real.
+Varios límites de tráfico se cuentan **por dirección de red**: los intentos
+fallidos de inicio de sesión, y el resguardo general para pedidos sin sesión.
+Detrás de un proxy mal configurado, esos límites se reparten entre *toda la
+empresa* como si fuera una sola persona, y en el registro figura la IP del proxy
+en lugar de la del equipo real — con lo cual, además, se pierde la única pista
+útil para saber desde dónde vino un problema.
 
 Con `TRUST_PROXY=true`, Express lee `X-Forwarded-For` (que el bloque de arriba ya
 manda) y cada usuario vuelve a contar por separado.
+
+> Los ingresos **correctos** no consumen presupuesto de ese límite, así que una
+> oficina entera entrando a la mañana no se bloquea a sí misma ni siquiera con
+> el proxy mal configurado. Aun así, `TRUST_PROXY=true` no es opcional: sin él
+> se pierde la trazabilidad y el bloqueo por red deja de discriminar.
 
 ```env
 COOKIE_SECURE=true
@@ -195,26 +201,59 @@ El módulo `proxy_wstunnel` es el equivalente de las dos cabeceras de nginx: sin
 
 ## Cuántos usuarios aguanta
 
-Medido con 50 conexiones simultáneas y tráfico real de chat y tickets, sobre el
-contenedor tal como se distribuye:
+Medido con **70 personas trabajando a la vez**, sin pausa entre acciones —
+bastante más exigente que el uso real, donde la gente piensa entre clic y clic:
 
 | | |
 |---|---|
-| Conexiones abiertas | 50 de 50, en 198 ms |
-| Entrega de un mensaje | 15 ms promedio, 23 ms máximo |
-| CPU en régimen | por debajo del 2 % |
-| RAM del contenedor | 41 MB |
-| Errores en el registro | ninguno |
+| Sesiones simultáneas | 70 de 70 |
+| Conexiones de tiempo real | 70 de 70, en 251 ms |
+| Peticiones en la prueba | 2.100 |
+| Errores | **ninguno** |
+| p95 de respuesta | 853 ms |
+| Rendimiento | 145 peticiones por segundo |
+| RAM del contenedor | ~45 MB |
+| CPU en régimen | por debajo del 3 % |
 
 El diseño es de **un solo proceso Node**, y a esta escala eso sobra: no hace
 falta Redis ni un broker de mensajes para compartir estado entre instancias,
 porque no hay varias instancias. El techo por configuración son 400 conexiones
 simultáneas (`MAX_CONNECTIONS` en `realtime.server.ts`).
 
+Verificado además que no pierde memoria con el uso prolongado: 200 conexiones
+abiertas y cerradas mueven la memoria del contenedor de 44,9 a 45,1 MB.
+
 Si alguna vez hiciera falta correr **más de una instancia** detrás del proxy,
 ahí sí habría que cambiar dos cosas: fijar la sesión al mismo proceso
 (`ip_hash` en nginx) o mover el registro de conexiones a algo compartido. No es
-el caso hoy y agregarlo ahora sería complejidad sin uso.
+el caso hoy y agregarlo ahora sería complejidad sin uso. La salida razonable
+antes de llegar a eso es una máquina más grande.
+
+---
+
+## Cerrar el acceso directo al puerto 3000
+
+Con el proxy adelante, la plataforma sigue escuchando en el puerto 3000 de toda
+la red, así que alguien puede entrar por `http://servidor:3000` y **saltearse el
+proxy** — y con él, el HTTPS.
+
+Se cierra con una variable del `.env`:
+
+```env
+# Solo la propia máquina puede llegar al 3000; el resto entra por el proxy.
+APP_BIND=127.0.0.1
+```
+
+Después de eso, `http://servidor:3000` deja de responder desde otras
+computadoras y el único camino es el proxy.
+
+> **Cuidado con el orden**: si ponés `APP_BIND=127.0.0.1` **antes** de tener el
+> proxy funcionando, nadie va a poder entrar. Primero se verifica que el proxy
+> anda (con la comprobación del WebSocket de más arriba), y recién después se
+> cierra el puerto directo.
+
+Si el servidor tiene varias placas de red y se quiere exponer por una sola, en
+lugar de `127.0.0.1` va la IP de esa placa.
 
 ---
 
@@ -228,3 +267,6 @@ el caso hoy y agregarlo ahora sería complejidad sin uso.
 | "Demasiados intentos" para gente que nunca falló | Falta `TRUST_PROXY=true` | Agregarlo al `.env` |
 | Los adjuntos fallan con 413 | `client_max_body_size` por defecto (1 MB) | `client_max_body_size 60m` |
 | El socket abre y cierra en bucle | Dos instancias detrás del proxy sin `ip_hash` | Dejar una sola instancia |
+| Se puede entrar por HTTP salteando el proxy | La plataforma escucha en toda la red | `APP_BIND=127.0.0.1` en el `.env` (**después** de verificar que el proxy anda) |
+| Nadie entra por ningún lado | `APP_BIND=127.0.0.1` puesto antes de tener el proxy listo | Volver a `APP_BIND=0.0.0.0` y reiniciar |
+| El correo deja de funcionar tras mover la plataforma | La clave `MAIL_ENCRYPTION_KEY` del `.env` no es la misma | Restaurar el `.env` original, o recargar las contraseñas de las casillas |

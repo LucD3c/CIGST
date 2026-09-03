@@ -24,6 +24,22 @@
 | ChatGroupMember | `chat_group_members` | Integrante de un grupo (+ su última lectura) |
 | Message | `chat_messages` | Mensaje del chat (readAt lo marca el receptor) |
 | Notification | `notifications` | Aviso dirigido a un usuario |
+| Post | `posts` | Publicación del feed de novedades |
+| PostBlock | `post_blocks` | Bloque de contenido de una publicación |
+| PostSector | `post_sectors` | Sectores a los que va dirigida una publicación |
+| PostComment | `post_comments` | Comentario de una publicación |
+| PostReaction | `post_reactions` | Reacción a una publicación |
+| PostView | `post_views` | Acuse de "visto" de una publicación |
+| KbSpace | `kb_spaces` | Base de conocimiento (un área) |
+| KbSection | `kb_sections` | Sección dentro de una base |
+| KbArticle | `kb_articles` | Artículo, con su texto buscable |
+| KbBlock | `kb_blocks` | Bloque de contenido de un artículo |
+| KbPermission | `kb_permissions` | Quién ve y quién edita cada base |
+| MailProvider | `mail_providers` | Servidor de correo configurado (solo Admin) |
+| MailAccount | `mail_accounts` | Casilla, con su contraseña cifrada |
+| MailAccess | `mail_access` | Quién puede usar una casilla compartida |
+| **Counter** | `counters` | Contador atómico de los códigos correlativos |
+| **LoginAttempt** | `login_attempts` | Intentos de inicio de sesión fallidos |
 
 ## Convenciones
 
@@ -51,6 +67,116 @@
 - **Attachment**: se elimina de verdad junto con su archivo físico. Los que
   quedan "sueltos" (subidos pero nunca enviados) los borra una rutina
   automática pasadas 24 h.
+
+## Dos tablas que no son de negocio
+
+Estas dos no representan nada del dominio: son mecanismos internos que resuelven
+problemas concretos que se detectaron en producción.
+
+### `counters` — los códigos correlativos
+
+Una fila por prefijo (`TK`, `EMP`, `EQ`, `BIT`) con el último número emitido.
+
+Antes los códigos se generaban con `count() + 1`, y eso tenía una condición de
+carrera real: dos altas simultáneas leían el mismo total, armaban el mismo
+código y la segunda moría contra el índice único devolviendo un error genérico
+— la persona perdía lo que había escrito.
+
+Ahora el número lo entrega Postgres en una sola sentencia:
+
+```sql
+INSERT INTO counters (prefix, value) VALUES ($1, 1)
+ON CONFLICT (prefix) DO UPDATE SET value = counters.value + 1
+RETURNING value;
+```
+
+Eso es atómico por definición: dos pedidos en paralelo reciben números
+distintos siempre. Además se comprueba que el código no esté ocupado antes de
+usarlo, lo que permite convivir con los **códigos de equipo escritos a mano**
+(si alguien cargó `EQ-015` manualmente, el contador salta a 016 y sigue).
+
+La migración que crea la tabla la siembra con el valor más alto entre la
+cantidad de filas existentes y el número más alto que aparece en los códigos ya
+emitidos, así la numeración continúa donde estaba.
+
+### `login_attempts` — el freno de fuerza bruta
+
+Una fila por intento fallido, con usuario, dirección de red y momento.
+
+Vive en la base y no en memoria por un motivo concreto: el limitador anterior
+era del proceso, así que **alcanzaba con reiniciar el contenedor** para que el
+contador volviera a cero. Ahora el bloqueo sobrevive a reinicios,
+actualizaciones y caídas.
+
+Dos ventanas, ambas de 15 minutos:
+
+| Límite | Cuánto | Por qué ese número |
+| --- | --- | --- |
+| Por cuenta | 8 fallos | Ocho errores seguidos ya no es alguien que se equivocó de tecla |
+| Por dirección de red | 30 fallos | Más alto a propósito: una oficina entera sale por la misma IP y no se puede castigar a todos por uno |
+
+Un ingreso correcto borra los fallos de esa cuenta. Las filas viejas las limpia
+la rutina de retención.
+
+## Orden alfabético: resuelto en la base
+
+Las columnas de texto que se ordenan llevan la **colación española**
+(`es-x-icu`), aplicada por migración:
+
+```sql
+ALTER TABLE employees ALTER COLUMN name TYPE TEXT COLLATE "es-x-icu";
+```
+
+Alcanza a `employees.name`, `equipment.model` y `.type`, `sectors.name`,
+`tickets.title`, `users.name`, `schedules.name`, `logbook_entries.title`,
+`kb_spaces.name` y `kb_articles.title`.
+
+La diferencia, medida sobre los mismos datos:
+
+```
+sin colación:  Nunez | Ortiz | Zapata | alvarez | Álvarez | Ñandú
+con colación:  alvarez | Álvarez | Nunez | Ñandú | Ortiz | Zapata
+```
+
+Antes esto se corregía reordenando en Node después de traer la tabla entera.
+Ese truco **deja de servir en cuanto los listados se paginan**: no se puede
+ordenar bien un universo del que solo se trajo una página. Por eso el orden se
+mudó a donde corresponde.
+
+Se usa el español genérico (`es-x-icu`) y no el de un país puntual, para que la
+plataforma sirva igual en cualquier empresa de habla hispana.
+
+## Búsqueda dentro de los artículos
+
+`kb_articles.search_text` guarda el texto plano del artículo, con un índice GIN
+de trigramas (`pg_trgm`) que permite buscar "contiene" sin recorrer la tabla.
+
+Lo escribe el backend en cada guardado usando `plainTextOf()`, **la misma
+función que excluye los campos marcados como ocultos**. Eso no es un detalle:
+en las bases de conocimiento se guardan credenciales compartidas en campos
+ocultos, y si el texto buscable las incluyera, cualquiera con acceso a la base
+podría encontrar un artículo buscando una contraseña.
+
+Antes la búsqueda traía hasta 500 artículos a memoria y los filtraba ahí:
+pasados los 500, los que quedaban afuera **no aparecían nunca** en ninguna
+búsqueda, y nadie se enteraba porque no había ningún aviso.
+
+## Índices para paginar
+
+Los listados devuelven de a una página, y para que eso no obligue a recorrer la
+tabla entera cada vez, hay un índice compuesto por lista:
+
+| Tabla | Índice |
+| --- | --- |
+| `tickets` | `(deleted_at, created_at)` |
+| `employees` | `(deleted_at, name)` |
+| `equipment` | `(deleted_at, model)` |
+| `logbook_entries` | `(deleted_at, occurred_at)` |
+| `kb_articles` | `(deleted_at, updated_at)` |
+
+El `deleted_at` va primero porque **toda** consulta de listado filtra por él
+(el borrado es lógico), así el índice sirve para el filtro y para el orden en
+una sola pasada.
 
 ## Categorías de ticket por sector
 

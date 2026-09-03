@@ -46,7 +46,7 @@ ejecución. Eso es lo que se busca en cada decisión.
 | Enumeración de usuarios | El mismo mensaje exista o no la cuenta | Los dos errores son idénticos |
 | Fijación de sesión | Cada login emite un token nuevo | Dos logins seguidos → tokens distintos |
 | Cierre de sesión | El token se borra del servidor, no solo del navegador | El token guardado deja de servir |
-| Fuerza bruta | 10 intentos por IP cada 5 minutos | Se bloquea con 429 |
+| Fuerza bruta | 8 contraseñas erradas bloquean la cuenta 15 min; 30 desde una misma red, lo mismo. Guardado en base de datos | Se bloquea con 429, y el bloqueo sobrevive a un reinicio |
 | Expiración | La sesión caduca y se renueva sola mientras se usa | — |
 
 > **Detrás de un proxy hay que poner `TRUST_PROXY=true`.** Si no, el límite de

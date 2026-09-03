@@ -208,6 +208,23 @@ encuentra también en correos viejos que no están a la vista.
 > correo, a qué hora y desde qué red. Si el correo es de confianza, hay un
 > botón para mostrarlas.
 
+### Si te pide volver a escribir la contraseña de una casilla
+
+Alguna vez puede aparecer un aviso arriba de la pantalla de Correo diciendo que
+una o más casillas **necesitan que vuelvas a escribir su contraseña**.
+
+Lo que pasó: las contraseñas de las casillas se guardan cifradas con una clave
+del servidor. Si esa clave cambió —lo típico es que hayan restaurado una copia
+de seguridad en un servidor nuevo— la plataforma ya no puede leerlas.
+
+Lo importante: **no se perdió ningún correo**. Los mensajes viven en el servidor
+de tu proveedor (Gmail, el de la empresa, el que sea), no dentro de la
+plataforma. Lo único que hay que hacer es entrar a *Mis casillas* y volver a
+cargar la contraseña de cada una que aparezca marcada.
+
+Antes de este aviso, uno se enteraba casilla por casilla y con un error distinto
+cada vez, sin entender el motivo.
+
 ### Lo que la plataforma NO hace
 
 No es un servidor de correo. **No recibe correo de internet y no abre ningún
@@ -479,6 +496,21 @@ tarjeta para descargar. Se puede mandar un archivo sin escribir nada.
 Cuentas de usuario: crear, cambiar rango o contraseña, desactivar o eliminar.
 Cada modificación deja su línea en el historial **"Cambios de esta cuenta"**.
 La plataforma no permite quedarse sin ningún Administrador activo.
+
+### Avisos que solo ve un Administrador
+
+Arriba de la lista pueden aparecer avisos sobre cómo está funcionando la
+plataforma. No son errores: son cosas que conviene que sepa quien administra.
+
+**"Esta conexión no está cifrada"** aparece cuando se entra por HTTP en vez de
+HTTPS. Significa que las contraseñas y la sesión viajan legibles por la red de
+la empresa. Dentro de una red interna cerrada suele ser aceptable, y por eso la
+plataforma no se niega a funcionar — pero es mejor saberlo y decidirlo que
+suponer que va cifrado. Cerrarlo del todo es tarea del área de sistemas y está
+explicado en la guía de puesta en producción.
+
+El aviso no aparece si entrás desde la propia máquina donde está instalada,
+porque ahí el tráfico no sale a la red.
 
 ---
 

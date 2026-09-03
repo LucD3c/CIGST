@@ -2,7 +2,7 @@
 
 > Este documento explica **cómo** está protegida la plataforma. Si lo que
 > buscás es **la prueba** de que esas protecciones funcionan, está en
-> [auditoria-seguridad.md](auditoria-seguridad.md): 46 controles ejecutados
+> [auditoria-seguridad.md](auditoria-seguridad.md): 108 controles ejecutados
 > contra la plataforma corriendo.
 
 ## Autenticación y sesiones
@@ -13,8 +13,20 @@
   **hash SHA-256** de ese token. Robar la base no permite fabricar sesiones.
 - Expiración deslizante (por defecto 12 h, configurable con
   `SESSION_TTL_HOURS`). Cerrar sesión elimina la sesión de verdad.
-- Rate limiting en el login (10 intentos por IP cada 5 minutos), más un
-  límite general en el resto de la API (ver "Límites de uso" abajo).
+- **Política de contraseñas**: mínimo 10 caracteres, combinando al menos tres
+  de los cuatro tipos (minúsculas, mayúsculas, números, símbolos), sin
+  secuencias tipo `1234` o `abcd`, sin el mismo carácter cuatro veces seguidas,
+  sin las contraseñas más usadas del mundo y sin contener el nombre de usuario.
+  Se piden tres de cuatro familias y no las cuatro a propósito: una frase
+  memorable con un número y un guion cumple de sobra, y una persona que no
+  puede cumplir la regla termina eligiendo la contraseña más fácil que el
+  sistema le acepte, que es peor que no tener política.
+- **Freno de fuerza bruta en la base de datos**: 8 contraseñas erradas bloquean
+  esa cuenta durante 15 minutos, venga el intento de donde venga; 30 fallos
+  desde una misma dirección de red la bloquean por el mismo lapso. Vive en la
+  base y no en memoria porque el limitador anterior era del proceso: alcanzaba
+  con **reiniciar el contenedor** para poner los contadores a cero.
+- Un límite general de contención en el resto de la API (ver "Límites de uso").
 - **CSRF**: no hay tokens anti-CSRF explícitos porque no hacen falta con
   este diseño — la cookie de sesión es `SameSite=Strict`, así que el
   navegador directamente **no la envía** en un pedido originado desde otro
@@ -91,15 +103,42 @@ Protecciones específicas del chat:
 
 ## Límites de uso (rate limiting)
 
-Además del límite estricto de login (10 intentos / 5 min por IP) y el de
-envío de mensajes de chat (30 / min por usuario), toda la API tiene un
-límite general de contención: **600 pedidos cada 5 minutos**, por usuario
-autenticado (por IP para pedidos sin sesión). No reemplaza a los límites
-específicos — es una red de resguardo adicional para que ninguna cuenta,
-por error de cliente, script o mal uso, pueda saturar el servidor. El uso
-normal de la interfaz (incluido el chat en tiempo real)
-queda muy por debajo: el techo existe para el caso anómalo, no para el uso
-cotidiano.
+| Qué | Límite | Ventana | Se cuenta por |
+| --- | --- | --- | --- |
+| **Contraseñas erradas de una cuenta** | 8 | 15 min | **Cuenta** (en base de datos) |
+| Contraseñas erradas desde una red | 30 | 15 min | Dirección IP (en base de datos) |
+| Inundación de pedidos de login | 200 | 5 min | Dirección IP (en memoria) |
+| Mensajes de chat | 30 | 1 min | Usuario |
+| Subida de archivos | 40 | 10 min | Usuario |
+| Resto de la API | 600 | 5 min | Usuario |
+| Mensajes por WebSocket | 30 | 1 min | Usuario |
+| Tramas por WebSocket | 240 | 1 min | Usuario |
+
+### Por qué el límite por IP del login es tan alto
+
+Porque **no es la defensa contra fuerza bruta**, es apenas un cortafuegos contra
+una inundación de pedidos. La defensa real es el límite por cuenta.
+
+El límite anterior era de 10 pedidos por IP cada 5 minutos y **contaba también
+los ingresos correctos**. En una oficina donde todos salen por el mismo router
+—o detrás de un proxy inverso— eso significa que la persona número 11 que llega
+a la mañana no puede entrar aunque escriba bien su contraseña. Se detectó
+midiendo: de 70 ingresos simultáneos entraban 10 y los otros 60 recibían un
+error.
+
+Ahora los ingresos correctos no consumen presupuesto, y tampoco lo consumen las
+respuestas del propio limitador (antes se realimentaba: una vez disparado, cada
+reintento lo estiraba y no se soltaba nunca).
+
+El resultado neto es **más estricto** que antes, no menos: antes no existía
+ningún límite por cuenta, así que se podían probar 10 contraseñas por IP cada 5
+minutos contra cuentas ilimitadas, y reiniciar el contenedor lo reseteaba todo.
+
+### Topes fijos
+
+10 MB por archivo · 5 archivos por envío · 64 KB por trama de WebSocket ·
+400 conexiones simultáneas · **200 filas por página** en cualquier listado
+(el cliente no lo puede subir: aunque pida 100.000, recibe 200).
 
 ## Archivos adjuntos
 
