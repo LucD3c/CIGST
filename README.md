@@ -67,7 +67,7 @@ detalle completo está en [Seguridad](docs/seguridad.md).
 | Los avisos de la empresa se pierden en un grupo de WhatsApp | Feed de novedades, con la grilla del sábado como tabla y no como captura |
 | Las claves de las obras sociales, en un Excel que circula por mail | Bases de conocimiento por área, con permisos y datos sensibles tapados |
 | Dos pestañas abiertas: el correo propio y el del sector | Las dos casillas en la misma pantalla, sin salir de la plataforma |
-| Una foto del celular ocupa 5 MB en el servidor | Las imágenes se achican solas antes de subir: **11 veces menos disco** |
+| Una foto del celular ocupa 5 MB en el servidor | Las imágenes se comprimen solas, en el navegador y también en el servidor: una foto de celular ocupa **unas 10 veces menos** |
 
 ## Funciones principales
 
@@ -112,7 +112,7 @@ detalle completo está en [Seguridad](docs/seguridad.md).
   la imagen en el portapapeles y se adjunta sola).
   Las **fotos se comprimen dos veces**: en el navegador antes de subir, y otra
   vez en el servidor para las que lleguen por cualquier otro medio. Una captura
-  de pantalla pasa de 350 KB a 85 KB — **cuatro veces menos** — sin que se note
+  de pantalla pasa de unos 350 KB a 85 KB — **cuatro veces menos** — sin que se note
   al mirarla. Los PDF, las planillas y los GIF animados no se tocan.
 - 💾 **El disco no se llena solo** — la plataforma controla cuánto ocupan los
   adjuntos y avisa antes de llegar al límite. Si lo alcanza, deja de aceptar

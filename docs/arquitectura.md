@@ -342,11 +342,11 @@ polling ya no existe** — se sacó por completo del cliente y del backend
 | `realtime.rateLimit.ts` | Cupo de mensajes y de frames por usuario |
 | `realtime.emit.ts` | API que usan los services para emitir |
 
-No se usa Redis ni un broker de mensajes: a la escala objetivo (hasta ~50
-usuarios simultáneos en red interna) todo lo sostiene **un solo proceso Node**,
-y no hay varias instancias entre las que compartir estado. Medido con 50
-conexiones simultáneas: 15 ms de latencia de entrega promedio, CPU por debajo
-del 3 %, 41 MB de RAM.
+No se usa Redis ni un broker de mensajes: a la escala prevista todo lo sostiene
+**un solo proceso Node**, y no hay varias instancias entre las que compartir
+estado. Medido con 70 personas trabajando en simultáneo: 70 de 70 conexiones
+establecidas en 251 ms, CPU por debajo del 3 % y unos 45 MB de RAM. El detalle
+completo de la medición está en la [guía de operación](operacion.md#escala-hasta-dónde-llega).
 
 ### Solo empuje: el cliente nunca se suscribe
 
@@ -490,10 +490,11 @@ archivos nuevos.
 
 ### Compresión de imágenes en el servidor (`attachments.imagen.ts`)
 
-El navegador ya comprimía antes de subir, pero esa compresión se saltea
-pegándole directo a la API. La pasada del servidor corre **siempre**, venga el
-archivo de donde venga. No toca PDF, planillas ni GIF (perdería la animación),
-y si comprimir no achica nada conserva el original.
+El navegador ya comprimía antes de subir, pero esa compresión es del lado del
+cliente: cualquier consumidor que invoque la API directamente la omite. La
+pasada del servidor se ejecuta **siempre**, sea cual sea el origen del archivo.
+No procesa PDF, planillas ni GIF (perdería la animación), y si la compresión no
+reduce el tamaño, conserva el archivo original.
 
 Medición real sobre una captura de pantalla: 351 KB → 85 KB, **4,2 veces más
 chica**.

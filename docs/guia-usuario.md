@@ -620,7 +620,7 @@ navegador, antes de subirla (así viaja poco por la red), y otra en el
 servidor, para que también entren comprimidas las que lleguen por otro medio.
 Se reduce a 1600 píxeles de lado máximo y se guarda en formato WEBP.
 
-En la práctica una captura de pantalla típica pasa de 350 KB a 85 KB: ocupa
+En la práctica una captura de pantalla típica pasa de unos 350 KB a 85 KB: ocupa
 **cuatro veces menos** sin que se note la diferencia al mirarla. Los PDF, las
 planillas y los GIF animados **no se tocan**: quedan exactamente como los
 subiste.

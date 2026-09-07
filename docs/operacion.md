@@ -4,9 +4,9 @@
 > funcionando, qué mirar, qué hacer cuando algo falla y qué se puede tocar sin
 > romper nada.
 >
-> Si lo que buscás es **instalarla**, empezá por el
-> [README](../README.md#instalación-en-3-pasos). Si lo que buscás es ponerla
-> detrás de HTTPS, andá a [puesta en producción](deployment-empresa.md).
+> Para **instalarla**, ver el
+> [README](../README.md#instalación-en-3-pasos). Para ponerla detrás de HTTPS,
+> ver [puesta en producción](deployment-empresa.md).
 
 ---
 
@@ -68,7 +68,8 @@ curl -s http://localhost:3000/api/health
 
 ### Qué NO hace falta vigilar
 
-Estas tareas corren solas y se limpian solas; no hay que acordarse de nada:
+Estas tareas se ejecutan de forma automática y se limpian solas; no requieren
+intervención ni seguimiento:
 
 | Tarea | Cada cuánto |
 | --- | --- |
@@ -81,8 +82,8 @@ Estas tareas corren solas y se limpian solas; no hay que acordarse de nada:
 
 ## Espacio en disco
 
-Es lo único que puede tumbar la plataforma por acumulación, así que tiene dos
-frenos.
+Es el único recurso que, por acumulación, puede dejar la plataforma fuera de
+servicio. Por eso tiene dos frenos independientes.
 
 **Por qué importa**: el volumen de adjuntos comparte disco con la base de
 datos. Si se llenara, Postgres dejaría de poder escribir y se caería **todo**,
@@ -110,7 +111,7 @@ docker system df -v | grep cigst
 
 Para dimensionar: cada imagen que entra se comprime **dos veces** (en el
 navegador antes de subirla, y otra vez en el servidor para las que lleguen por
-otro medio). Una captura de pantalla típica pasa de 350 KB a 85 KB — **cuatro
+otro medio). Una captura de pantalla típica pasa de unos 350 KB a 85 KB — **cuatro
 veces menos**. Los PDF, las planillas y los GIF animados no se tocan.
 
 ### Si se está quedando sin lugar
@@ -146,8 +147,8 @@ otra vez justo antes de borrar) y solo si tienen más de 24 horas, para que sea
 imposible pisar una subida en curso.
 
 La misma rutina corre sola cada 6 horas. La opción del menú sirve para
-dispararla cuando uno quiere y, sobre todo, para **ver en pantalla exactamente
-qué se eliminó**.
+ejecutarla a demanda y, sobre todo, para **ver en pantalla el detalle exacto de
+lo que se eliminó**.
 
 ### Ajustar cuánto se conserva
 
@@ -169,8 +170,8 @@ Guarda en `backups/AAAA-MM-DD_HH-MM/`:
 
 - `base-de-datos.sql` — volcado completo de Postgres
 - `adjuntos.tar` — todos los archivos
-- `configuracion.env.cifrado` — el `.env`, **cifrado con una contraseña que
-  elegís vos** (AES-256, 200.000 iteraciones)
+- `configuracion.env.cifrado` — el `.env`, **cifrado con una contraseña
+  definida por el operador** (AES-256, 200.000 iteraciones de derivación)
 
 > **Por qué la configuración va aparte y cifrada.** El `.env` contiene la clave
 > con la que se descifran las contraseñas de las casillas de correo. Antes se
@@ -178,8 +179,8 @@ Guarda en `backups/AAAA-MM-DD_HH-MM/`:
 > la vez los datos cifrados **y la llave para abrirlos**: quien se llevara el
 > pendrive se llevaba todo.
 >
-> **Guardá esa contraseña en otro lugar que la copia.** Si las dos cosas viajan
-> juntas, es como dejar la llave pegada en la puerta.
+> **Esa contraseña debe guardarse en una ubicación distinta de la copia.** Si
+> ambas viajan juntas, el cifrado deja de aportar protección.
 
 ### Automática (opción 8)
 
@@ -315,9 +316,10 @@ La genera el instalador. **Si falta, el módulo de Correo queda desactivado y el
 resto de la plataforma funciona igual** — falla cerrado a propósito: es
 preferible eso a cifrar con algo predecible.
 
-**Guardá esta clave.** Si se pierde, las contraseñas de las casillas guardadas
-son irrecuperables y hay que volver a cargarlas a mano. No se pierde ningún
-correo: los mensajes viven en el servidor de correo.
+**Esta clave debe resguardarse.** Si se pierde, las contraseñas de las casillas
+guardadas son irrecuperables y hay que volver a cargarlas manualmente. No se
+pierde ningún correo: los mensajes residen en el servidor de correo, no en la
+plataforma.
 
 ### Otras
 
@@ -462,9 +464,11 @@ faltan las dos cabeceras de `Upgrade` — está explicado en
 
 ### "Va lento"
 
-1. `docker stats` para ver CPU y memoria.
-2. Si la base está al palo, revisar `DB_POOL`.
-3. Si el disco está lleno, Postgres se arrastra: liberar espacio.
+1. `docker stats` para ver consumo de CPU y memoria.
+2. Si el consumo de la base es elevado y hay peticiones en espera, revisar
+   `DB_POOL`: el pool puede estar saturado.
+3. Si el disco está lleno, el rendimiento de Postgres se degrada de forma
+   marcada. Liberar espacio.
 
 ---
 

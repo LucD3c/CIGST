@@ -6,8 +6,8 @@
 
 CIGST funciona sin proxy: `docker compose up -d` deja la plataforma escuchando
 en el puerto 3000 y con eso ya opera dentro de la red interna. El proxy se
-agrega cuando se quiere HTTPS con certificado propio, un nombre lindo
-(`soporte.empresa.local` en vez de `10.0.0.15:3000`) o publicar varias
+agrega cuando se requiere HTTPS con certificado propio, un nombre de host
+legible (`soporte.empresa.local` en lugar de `10.0.0.15:3000`) o publicar varias
 aplicaciones en el mismo servidor.
 
 ---

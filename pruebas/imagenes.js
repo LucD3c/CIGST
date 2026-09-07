@@ -91,7 +91,7 @@ async function subir(nombre, buffer) {
     check('hay ahorro real incluso en el peor caso posible', ahorro > 30, `${ahorro.toFixed(1)}%`);
   }
 
-  console.log('\n=== Una imagen chica no se degrada al pedo ===');
+  console.log('\n=== Una imagen chica no se degrada sin necesidad ===');
   const chica = pngGrande(200, 150);
   const r2 = await subir('chiquita.png', chica);
   const adj2 = r2.body?.attachments?.[0];

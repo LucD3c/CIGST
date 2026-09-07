@@ -186,7 +186,7 @@ afuera al proveedor, como cualquier programa de correo de escritorio.
 | Demasiados bloques de contenido | 400 (tope de 60) |
 | Tabla desmedida | 400 (tope de 200 filas × 12 columnas) |
 | Archivo demasiado grande | 10 MB por archivo, 5 por vez |
-| Disco por imágenes | Se comprimen en el navegador: **11 veces menos** |
+| Disco por imágenes | Se comprimen en el navegador **y también en el servidor**, así que no se puede evitar invocando la API directamente. Una foto de celular ocupa unas 10 veces menos; una captura de pantalla, unas 4 |
 | Adjuntos que quedaron sueltos | Se borran solos a las 24 h |
 | Conexiones de correo abiertas | Techo de 30, se cierran a los 90 s de ocio |
 | Conexiones de tiempo real | Techo de 400 |
