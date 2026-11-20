@@ -5,6 +5,7 @@ import { loadMailCarpetas, loadMailCuentas, loadMailEstado, loadMailMensajes, ma
 import { applySessionUser, loadCatalogos, loadEmployeeData, loadStaffData } from './datos.js';
 import { E } from './estado.js';
 import { feedView, loadFeed, wireFeed } from './feed.js';
+import { drivesView, loadDrivesVista, wireDrives } from './unidades.js';
 import { employeeDetail, employeePortal, employeesView, equipmentDetail, equipmentView, logbookView, sectorDetail, sectorsView, ticketsView, usersView, wireSectorCategories } from './listas.js';
 import { normalizeEmployee, normalizeEquipment, normalizeSector } from './normalizar.js';
 import { $, api, handleApiError } from './nucleo.js';
@@ -23,11 +24,12 @@ export async function render(id){
   if(!isStaff()){
     // El rango User tambien entra a Novedades y a las Bases de conocimiento:
     // no son herramientas de soporte, son informacion de la empresa.
-    const permitidas=['chat','feed','knowledge','mail'];
+    const permitidas=['chat','feed','knowledge','mail','drives'];
     if(!permitidas.includes(E.currentView))E.currentView='employee-portal';
     let content;
     try{
       if(E.currentView==='chat'){content=await chatView();}
+      else if(E.currentView==='drives'){await loadDrivesVista();content=drivesView();}
       else if(E.currentView==='feed'){await loadFeed(true);content=feedView();}
       else if(E.currentView==='knowledge'){if(!E.kbSpace)await loadKbSpaces();content=kbView();}
       else if(E.currentView==='mail'){await loadMailEstado();if(E.mailEstado.disponible&&!E.mailCuentas.length)await loadMailCuentas();content=mailView();}
@@ -38,6 +40,7 @@ export async function render(id){
     if(E.currentView==='feed')wireFeed();
     if(E.currentView==='knowledge')wireKb();
     if(E.currentView==='mail')wireMail();
+    if(E.currentView==='drives')wireDrives();
     return;
   }
   if(E.currentView==='users'&&!isAdmin())E.currentView='dashboard';
@@ -46,6 +49,7 @@ export async function render(id){
     if(!['chat','feed','knowledge'].includes(E.currentView))await loadStaffData(E.currentView);
     if(E.currentView==='feed'){await loadCatalogos();await loadFeed(true);}
     if(E.currentView==='knowledge'&&!E.kbSpace)await loadKbSpaces();
+    if(E.currentView==='drives')await loadDrivesVista();
     if(E.currentView==='mail'){
       await loadMailEstado();
       if(E.mailEstado.disponible){
@@ -66,6 +70,7 @@ export async function render(id){
     case 'feed':content=feedView();break;
     case 'knowledge':content=kbView();break;
     case 'mail':content=mailView();break;
+    case 'drives':content=drivesView();break;
     case 'employee-detail':{
       if(!id){E.currentView='employees';content=employeesView();break;}
       let detail;
@@ -100,6 +105,7 @@ export async function render(id){
   if(E.currentView==='feed')wireFeed();
   if(E.currentView==='knowledge')wireKb();
   if(E.currentView==='mail')wireMail();
+  if(E.currentView==='drives')wireDrives();
   if(E.currentView==='sector-detail')wireSectorCategories();
 }
 

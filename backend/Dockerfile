@@ -22,7 +22,10 @@ RUN npm run build
 FROM node:20.20.2-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-RUN apk add --no-cache openssl
+# samba-client trae "smbclient", con el que la plataforma se conecta a las
+# unidades de red (carpetas compartidas de Windows / Samba). Habla SMB2 y SMB3
+# con firma y cifrado, como el Explorador de Windows.
+RUN apk add --no-cache openssl samba-client
 
 RUN addgroup -S cigst && adduser -S cigst -G cigst
 

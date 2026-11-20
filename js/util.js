@@ -28,7 +28,7 @@ export async function traerTicket(id){
 }
 export const statusClass = value => ({'Crítica':'b-red','Alta':'b-yellow','Nuevo':'b-blue','En proceso':'b-blue','Abierto':'b-blue','Esperando proveedor':'b-yellow','Esperando usuario':'b-yellow','Resuelto':'b-green','Cerrado':'b-green','Activo':'b-green','Inactivo':'b-gray','Bloqueado':'b-red','Baja':'b-gray','Media':'b-blue'}[value] || 'b-gray');
 export const badge = value => `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
-export const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['mail','✉','Correo'], ['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
+export const navItems = [ ['feed','◎','Novedades'], ['dashboard','⌂','Centro de operaciones'], ['tickets','◈','Tickets'], ['employees','♙','Personas'], ['equipment','▣','Equipos y espacios'], ['sectors','◫','Sectores'], ['knowledge','▦','Bases de conocimiento'], ['mail','✉','Correo'], ['drives','⛁','Unidades de red'],['logbook','▤','Bitácora técnica'], ['users','◉','Panel administrador'], ['chat','✉','Mensajes'] ];
 // Equipos y tambien LUGARES: un ticket puede apuntar a una PC o a un
 // consultorio/sala/puerta. Se carga solo lo que recibe pedidos, no un
 // inventario exhaustivo de la empresa.

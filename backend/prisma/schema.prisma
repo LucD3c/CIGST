@@ -67,6 +67,9 @@ model User {
   mailProviders        MailProvider[] @relation("MailProviderCreator")
   mailAccounts         MailAccount[]  @relation("MailAccountOwner")
   mailAccess           MailAccountAccess[] @relation("MailAccessUser")
+  networkDrivesCreated NetworkDrive[]       @relation("NetworkDriveCreator")
+  networkDriveAccess   NetworkDriveAccess[] @relation("NetworkDriveAccessUser")
+  networkDriveEvents   NetworkDriveEvent[]  @relation("NetworkDriveEventUser")
 
   @@index([roleId])
   @@index([employeeId])
@@ -109,6 +112,7 @@ model Sector {
   posts         PostSector[]
   kbPermissions KbPermission[]
   mailAccess    MailAccountAccess[]
+  networkDriveAccess NetworkDriveAccess[]
 
   @@map("sectors")
 }
@@ -727,6 +731,94 @@ model MailAccountAccess {
   @@index([userId])
   @@index([sectorId])
   @@map("mail_account_access")
+}
+
+// ---------------------------------------------------------------------------
+// UNIDADES DE RED
+//
+// Carpetas compartidas (SMB/Samba) que YA existen en un servidor de archivos de
+// la empresa, vinculadas a la plataforma. CIGST no crea ni administra esas
+// carpetas: solo se conecta a ellas, como lo haria Windows al mapear una
+// unidad. Los archivos NUNCA se copian a la base ni al disco de CIGST: se leen
+// y se escriben directamente en el servidor de archivos.
+//
+// Las configura unicamente un Administrador y las asigna a personas o a
+// sectores. La credencial es la del servidor de archivos (no la de CIGST) y
+// se guarda cifrada con la misma clave que las casillas de correo.
+// ---------------------------------------------------------------------------
+model NetworkDrive {
+  id        String @id @default(uuid())
+  // Nombre con el que la ven las personas ("Contabilidad", "Mis documentos").
+  name      String
+  // Servidor (IP o nombre) y recurso compartido: \\host\share
+  host      String
+  share     String
+  // Subcarpeta opcional dentro del recurso, con "/" como separador. Vacio = la
+  // raiz del recurso. Permite vincular \\host\share\Contabilidad\2026 sin dar
+  // acceso al resto del recurso.
+  basePath  String  @default("") @map("base_path")
+  // Dominio o grupo de trabajo del usuario. Opcional.
+  domain    String?
+  authUser  String  @map("auth_user")
+  // Contrasena cifrada con AES-256-GCM. Nunca sale de aca en claro ni viaja
+  // al cliente en ninguna respuesta.
+  secretCipher String @map("secret_cipher")
+  status    String  @default("Activo")
+  // Resultado de la ultima conexion, para mostrar "revisá la contraseña" en
+  // vez de una carpeta vacia sin explicacion.
+  lastCheckedAt DateTime? @map("last_checked_at")
+  lastError     String?   @map("last_error")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  createdBy User?                @relation("NetworkDriveCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  access    NetworkDriveAccess[]
+  events    NetworkDriveEvent[]
+
+  @@map("network_drives")
+}
+
+// Quien puede usar una unidad: una persona o un sector, nunca ambos en la
+// misma fila (igual que las casillas compartidas de correo). Una unidad
+// "personal" es simplemente una unidad asignada a una sola persona.
+model NetworkDriveAccess {
+  id        String   @id @default(uuid())
+  driveId   String   @map("drive_id")
+  userId    String?  @map("user_id")
+  sectorId  String?  @map("sector_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  drive  NetworkDrive @relation(fields: [driveId], references: [id], onDelete: Cascade)
+  user   User?        @relation("NetworkDriveAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  sector Sector?      @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@index([driveId])
+  @@index([userId])
+  @@index([sectorId])
+  @@map("network_drive_access")
+}
+
+// Registro de lo que se subio y se elimino desde la plataforma: quien, que
+// archivo y cuando. Las eliminaciones exigen la contrasena de la unidad, y los
+// intentos con contrasena incorrecta tambien quedan anotados.
+model NetworkDriveEvent {
+  id        String   @id @default(uuid())
+  driveId   String   @map("drive_id")
+  userId    String?  @map("user_id")
+  // "subida", "eliminacion" o "eliminacion_rechazada".
+  action    String
+  // Ruta del archivo dentro de la unidad, con "/" como separador.
+  path      String
+  size      BigInt?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  drive NetworkDrive @relation(fields: [driveId], references: [id], onDelete: Cascade)
+  user  User?        @relation("NetworkDriveEventUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([driveId, createdAt])
+  @@map("network_drive_events")
 }
 
 // Contador atomico para los codigos legibles (TK-001, EMP-001, EQ-001...).

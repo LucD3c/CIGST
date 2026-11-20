@@ -33,4 +33,13 @@ export const E = {
   mailCarpetas: [],
   mailMensajes: [],
   mailAbierto: null,  // mensaje que se esta leyendo
+  drivesEstado: null,  // { disponible }
+  drivesModo: 'uso',  // 'uso' (mis unidades) o 'admin' (solo Administrador)
+  drives: [],  // unidades de red asignadas a quien esta logueado
+  drivesCargadas: false,
+  driveActiva: null,
+  drivePath: '',  // carpeta abierta dentro de la unidad, con "/"
+  driveEntradas: null,  // contenido de esa carpeta (null = hay que leerla)
+  driveError: null,
+  drivesAdmin: [],
 };

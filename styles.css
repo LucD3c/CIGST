@@ -269,3 +269,78 @@ textarea.blk-in{resize:vertical;line-height:1.5}
 /* Distintivo del proveedor de correo habilitado para alcanzar la red interna. */
 .etiqueta-interna{display:inline-block;background:var(--yellow-d);color:#f0c776;font-size:10px;font-weight:700;
   text-transform:uppercase;letter-spacing:.4px;border-radius:4px;padding:2px 6px;vertical-align:1px}
+
+/* ---------- Unidades de red ---------- */
+.drv-unidad-unica{align-self:center;font-weight:600;font-size:14px;padding:0 4px}
+.drv-ruta{align-self:center;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.drv-acciones{margin-left:auto;display:flex;gap:8px;align-items:center}
+.drv-panel{position:relative}
+.drv-barra{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.drv-migas{display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex:1;min-width:0}
+.drv-miga{background:transparent;border:0;color:var(--blue);font:600 13px 'DM Sans';cursor:pointer;padding:4px 6px;border-radius:6px}
+.drv-miga:hover{background:var(--surface-2)}
+.drv-miga.actual{color:var(--text);cursor:default}
+.drv-miga-sep{color:var(--muted);padding:0 2px}
+.drv-filtro{width:240px;max-width:100%;background:#0c1420;color:var(--text);border:1px solid var(--line);padding:8px 10px;border-radius:8px;font:inherit;font-size:12.5px;outline:none}
+.drv-filtro:focus{border-color:var(--blue)}
+.drv-tabla td{padding:10px 18px}
+.drv-tabla tbody tr.drv-fila-archivo{cursor:default}
+.drv-icono{display:inline-block;width:18px;text-align:center;color:var(--muted)}
+.drv-icono.carpeta{color:var(--yellow)}
+.drv-num{white-space:nowrap}
+.drv-acc{text-align:right;white-space:nowrap}
+.drv-mini{padding:5px 10px;font-size:12px;margin-left:6px}
+.drv-peligro:hover{border-color:var(--red);color:#ffabb0}
+.drv-pie{padding:10px 18px;border-top:1px solid #223044;font-size:12px}
+.drv-soltar{display:none;position:absolute;inset:0;border:2px dashed var(--blue);border-radius:var(--radius);background:#0b1a2ccc;
+  color:#cfe5ff;font-weight:600;align-items:center;justify-content:center;pointer-events:none;z-index:2}
+.drv-panel.soltando .drv-soltar{display:flex}
+.drv-subidas{padding:10px 14px;margin-bottom:14px;display:grid;gap:9px}
+.drv-subidas:empty{display:none}
+.drv-subida-txt{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.drv-subida-estado{color:var(--muted);font-size:11.5px;min-width:64px;text-align:right}
+.drv-subida.error .drv-subida-estado{color:var(--red)}
+.drv-subida.lista .drv-subida-estado{color:var(--green)}
+.drv-progreso{height:4px;background:#0c1420;border-radius:3px;overflow:hidden;margin-top:5px}
+.drv-progreso span{display:block;height:100%;background:var(--blue);transition:width .2s}
+.drv-subida.lista .drv-progreso span{background:var(--green)}
+.drv-subida.error .drv-progreso span{background:var(--red)}
+.drv-subida-error{color:#ffabb0;font-size:11.5px;margin-top:4px}
+.drv-lista{margin:6px 0 12px;padding-left:20px;line-height:1.6}
+.drv-ayuda{margin:-8px 0 16px}
+.drv-asignada{display:flex;flex-wrap:wrap;gap:5px;max-width:320px}
+.drv-tabla-admin tbody tr{cursor:default}
+/* Los cinco botones no entran en una sola linea en pantallas de 1280 px: se
+   acomodan en dos renglones en vez de quedar cortados a la derecha. */
+.drv-tabla-admin .drv-acc{white-space:normal;width:1%;min-width:236px}
+.drv-tabla-admin .drv-mini{margin:3px 0 3px 6px}
+.drv-error-linea{color:#ffabb0;font-size:11.5px;margin-top:4px;max-width:420px}
+.modal.modal-ancho{width:min(900px,100%)}
+@media(max-width:760px){
+  .drv-acciones{margin-left:0;width:100%}
+  .drv-filtro{width:100%}
+  .drv-ruta{flex-basis:100%}
+  /* En el telefono las tablas de unidades pasan a tarjetas: una fila es un
+     bloque y los botones quedan a la vista, sin desplazar la tabla de costado
+     como el resto de las listas (por eso se anula el ancho minimo de 640 px). */
+  .drv-tabla,.drv-tabla tbody,.drv-tabla-admin,.drv-tabla-admin tbody,
+  .drv-tabla-actividad,.drv-tabla-actividad tbody{display:block;min-width:0}
+  .drv-tabla thead,.drv-tabla-admin thead,.drv-tabla-actividad thead{display:none}
+  .drv-tabla tr,.drv-tabla-admin tr,.drv-tabla-actividad tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:12px 16px;border-top:1px solid #223044}
+  .drv-tabla td,.drv-tabla-admin td,.drv-tabla-actividad td{display:block;padding:0;border:0;min-width:0;overflow-wrap:anywhere}
+  .drv-tabla td.empty,.drv-tabla td[colspan],.drv-tabla-admin td.empty,.drv-tabla-actividad td.empty{grid-column:1/-1}
+  /* Archivos: nombre arriba; tamano y botones abajo; la fecha se omite. */
+  .drv-tabla td:nth-child(1){grid-column:1/-1}
+  .drv-tabla td:nth-child(3){display:none}
+  .drv-tabla td:nth-child(4){display:block;grid-column:2}
+  .drv-tabla .drv-mini:first-child{margin-left:0}
+  /* Administracion: nombre y estado arriba; usuario, asignacion y botones abajo. */
+  .drv-tabla-admin td:nth-child(1){grid-column:1}
+  .drv-tabla-admin td:nth-child(4){display:block;grid-column:2;grid-row:1}
+  .drv-tabla-admin td:nth-child(2),.drv-tabla-admin td:nth-child(3){grid-column:1/-1}
+  .drv-tabla-admin td:nth-child(5){display:block;grid-column:1/-1;text-align:left;min-width:0;width:auto}
+  .drv-tabla-admin .drv-mini{margin:3px 6px 3px 0}
+  /* Actividad: cuando y que arriba; quien y archivo abajo. */
+  .drv-tabla-actividad td:nth-child(3){grid-column:2;grid-row:1}
+  .drv-tabla-actividad td:nth-child(2),.drv-tabla-actividad td:nth-child(4){display:block;grid-column:1/-1}
+}

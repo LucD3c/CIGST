@@ -35,6 +35,13 @@ const server = app.listen(env.PORT, () => {
   void rellenarBusquedaArticulos();
 });
 
+// Tiempo maximo para RECIBIR un pedido completo. Node trae 5 minutos por
+// defecto, y subir un archivo grande a una unidad de red puede llevar mas que
+// eso por la red de una oficina: la subida se cortaba a la mitad. Se amplia a
+// 2 horas. La espera de los encabezados (headersTimeout, 60 s) no cambia, que
+// es lo que frena a quien abre conexiones y no manda nada.
+server.requestTimeout = 2 * 60 * 60 * 1000;
+
 // Tiempo real sobre el mismo servidor HTTP: mismo puerto y misma cookie de
 // sesion, sin abrir nada nuevo hacia afuera.
 attachRealtime(server);

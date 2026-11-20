@@ -12,6 +12,10 @@ export function applySessionUser(user) {
   E.session = true;
   E.chatConversations = []; E.chatGroups = []; E.activeChatConversationId = null; E.activeChatGroupId = null;
   E.chatMessages = []; E.chatUnreadCount = 0; E.notifUnreadCount = 0; E.currentDetailId = null;
+  // Si la sesion vencio y entra OTRA persona en la misma pestania, no puede
+  // quedar a la vista la lista de unidades (ni la carpeta abierta) de la anterior.
+  E.drivesEstado = null; E.drivesModo = 'uso'; E.drives = []; E.drivesCargadas = false; E.driveActiva = null;
+  E.drivePath = ''; E.driveEntradas = null; E.driveError = null; E.drivesAdmin = [];
   startRealtime();
   E.currentView = 'feed';
 }
