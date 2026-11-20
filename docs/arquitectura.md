@@ -4,6 +4,10 @@
 > plataforma, alcanza con el [README](../README.md) y la
 > [guía de usuario](guia-usuario.md).
 
+> 🆕 **Nuevo en esta versión: Unidades de red.** Un módulo de backend
+> (`modules/drives/`), una pantalla (`js/unidades.js`) y tres tablas. Ver
+> [la decisión de diseño](#decisión-unidades-de-red-con-smbclient-sin-copiar-archivos-nuevo).
+
 ## Stack
 
 | Capa | Tecnología |
@@ -29,7 +33,8 @@ backend/
     db/          cliente de Prisma (PostgreSQL)
     middleware/  autenticación, autorización por rol, validación, rate limit
     modules/     auth, users, employees, equipment, tickets, logbook,
-                 sectors, schedules, chat, notifications, attachments
+                 sectors, schedules, chat, notifications, attachments,
+                 mail, feed, knowledge, drives (🆕 unidades de red)
                  (cada uno: routes -> controller -> service -> repository)
     realtime/    tiempo real por WebSocket: servidor, registro de
                  conexiones, audiencia (RBAC) y cupo de mensajes
@@ -165,6 +170,15 @@ de que el usuario fuerce una recarga.
   `knowledge.permissions.ts`, que combina sector, rango y persona. Un endpoint
   de base a la que no se tiene acceso responde **404, no 403**: quien no la
   puede ver tampoco deberia poder deducir que existe probando identificadores.
+- 🆕 **Unidades de red** (`/api/drives`): todo lo que está bajo
+  `/api/drives/admin` es solo Administrador (vincular, editar, probar,
+  asignar, ver actividad, desvincular). El resto (`/`, `/:id/items`,
+  `/:id/exists`, `/:id/download`, `/:id/upload`, `/:id/delete`) lo usa
+  cualquier rango, pero solo sobre las unidades asignadas a esa persona o a su
+  sector. Una unidad no asignada responde 403, también para un Administrador.
+  La subida es un `PUT` con el archivo crudo en el cuerpo (no multipart). Un
+  error de credenciales del servidor de archivos responde **409, nunca 401**:
+  un 401 haría que la interfaz cerrara la sesión de CIGST.
 - **Referencias opcionales**: `utils/commonSchemas.ts → nullableUuid` acepta
   las tres formas de "sin valor" (`''` del formulario, `null` explícito de
   la API, campo ausente) y las guarda como `null`.
@@ -287,6 +301,70 @@ Las conexiones IMAP se reservan 90 segundos y se reusan: abrir una cuesta
 entre medio segundo y un segundo (saludo TLS + autenticación), y hacerlo en
 cada clic haría que la bandeja se sienta pesada. Hay un tope de 30 conexiones
 simultáneas para que la memoria no crezca sin límite.
+
+## Decisión: unidades de red con `smbclient`, sin copiar archivos (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** deja usar desde CIGST las carpetas compartidas (SMB) que ya
+>   existen en un servidor de archivos Windows o Samba.
+> - **Cómo se usa:** un Administrador vincula la carpeta y la asigna; cada
+>   persona navega, descarga, sube y elimina desde *Unidades de red*.
+> - **Cómo está hecho:** el backend lanza `smbclient` (el cliente oficial de
+>   Samba) por cada operación. Los archivos pasan del servidor de archivos al
+>   navegador como un flujo, sin guardarse en CIGST. La contraseña de cada
+>   unidad se guarda cifrada con la misma clave que el correo.
+>
+> Archivos: `backend/src/modules/drives/` (`drives.smb.ts` habla con
+> smbclient, `drives.service.ts` aplica permisos y registra la actividad),
+> `js/unidades.js` (la pantalla) y la migración `20261118120000_unidades_de_red`.
+
+Las unidades de red (`backend/src/modules/drives/`, `js/unidades.js`) vinculan
+carpetas compartidas SMB que ya existen en un servidor de archivos. Tres
+decisiones que no son obvias:
+
+**1. `smbclient` y no una librería de JavaScript.** Las librerías SMB para Node
+que existen hablan solo SMB 2.0, sin firma ni cifrado. Windows Server actual y
+Windows 11 24H2 **exigen firma**, y con esas librerías la conexión simplemente
+falla. `smbclient` (paquete `samba-client` de Alpine, en el Dockerfile) habla
+SMB2/SMB3 con firma y cifrado. Cada operación es un proceso corto; la
+contraseña viaja por la variable de entorno `PASSWD`, nunca como argumento (no
+aparece en la lista de procesos).
+
+**2. Cómo se le pasan las órdenes — esto es lo delicado.** Con `-c`,
+smbclient corta las órdenes en cada `;` **aunque esté entre comillas**
+(comprobado con smbclient 4.22): un archivo llamado `a; del *` ejecutaría una
+segunda orden. Las reglas, en `drives.smb.ts`:
+
+- Nunca va un nombre ajeno dentro de `-c`. Ahí solo va el nombre temporal de
+  una subida, que genera la plataforma (`~cigst-<hex>.tmp`).
+- Las órdenes van **por la entrada estándar**, una por línea. Ahí el `;` no
+  separa nada.
+- Los nombres no pueden tener saltos de línea, `"`, `\` (smbclient la toma como
+  escape en ese modo), `*`, `?` ni el resto de lo que Windows prohíbe.
+- Las carpetas se separan con `/`.
+- Con `-E`, todos los mensajes salen por stderr y **stdout queda reservado para
+  el contenido del archivo** que se descarga. El listado y los errores
+  (`NT_STATUS_*`) se leen de stderr.
+- En el modo entrada estándar, smbclient sale con código 0 aunque una orden
+  falle: el error se detecta por el `NT_STATUS_*` del texto, no por el código.
+
+**3. Los archivos no se copian ni pasan por el disco de CIGST.** Una descarga
+es `get "ruta" -` (stdout → respuesta HTTP). Una subida es `put - "temporal"`
+con el cuerpo del pedido en stdin (el navegador manda el archivo crudo, como
+`application/octet-stream`, sin multipart), y después un `rename` del temporal
+al nombre real. El renombrado es lo que garantiza que **nunca se sobreescribe**:
+el servidor de archivos lo rechaza con `NT_STATUS_OBJECT_NAME_COLLISION` si el
+nombre ya existe. Para que una subida larga no se corte, `server.requestTimeout`
+se subió a 2 horas en `server.ts` (Node trae 5 minutos).
+
+La eliminación se ejecuta con la contraseña que escribe la persona, no con la
+guardada: la valida el propio servidor de archivos. La interfaz descarga por un
+`iframe` oculto: una descarga real no dispara `load`, un error sí, y así se
+muestra el mensaje en vez de guardar el error como si fuera el archivo.
+
+Para probar sin un servidor de archivos real alcanza con un contenedor Alpine
+con `samba-server` conectado a la red `cigst_cigst_net`.
 
 ## Decisión: contenido por bloques, nunca HTML del usuario
 
@@ -533,28 +611,33 @@ Durante mucho tiempo toda la interfaz vivió en un único `app.js` de 3.475
 líneas. Funcionaba, pero encontrar algo ahí adentro costaba, y ese costo sube
 solo con el tiempo.
 
-Ahora son **18 archivos**, ninguno de más de 480 líneas:
+Ahora son **19 archivos**. Salvo `unidades.js`, ninguno pasa de 500 líneas:
 
 | Archivo | Qué hace | Líneas |
 |---|---|---|
-| `estado.js` | Estado compartido, en un único objeto | 36 |
 | `util.js` | Escapado de HTML, insignias, roles | 39 |
-| `nucleo.js` | Cliente de la API y manejo de errores | 52 |
-| `normalizar.js` | Traduce las respuestas del servidor a la forma que usa la pantalla | 64 |
-| `notificaciones.js` | La campanita | 85 |
-| `datos.js` | Qué se carga en cada pantalla | 106 |
-| `armazon.js` | Login, barra lateral, menú del celular, botón Mi IP | 113 |
-| `app.js` | Router y arranque | 121 |
-| `adjuntos.js` | Compresión de imágenes, subidas, pegar con Ctrl+V | 183 |
-| `listas.js` | Tablas, orden por columna y vistas de listado | 198 |
-| `paginacion.js` | Paginado, filtros y redibujado de listas | 205 |
-| `tiemporeal.js` | WebSocket y reconexión | 235 |
-| `feed.js` | Novedades | 254 |
-| `conocimiento.js` | Bases de conocimiento | 273 |
-| `chat.js` | Mensajes 1 a 1 y grupos | 350 |
-| `formularios.js` | Altas, ediciones y bajas | 365 |
-| `bloques.js` | Renderizado y editor de bloques de contenido | 445 |
-| `correo.js` | Webmail | 476 |
+| `estado.js` | Estado compartido, en un único objeto | 45 |
+| `nucleo.js` | Cliente de la API y manejo de errores | 53 |
+| `normalizar.js` | Traduce las respuestas del servidor a la forma que usa la pantalla | 65 |
+| `notificaciones.js` | La campanita | 86 |
+| `datos.js` | Qué se carga en cada pantalla | 110 |
+| `armazon.js` | Login, barra lateral, menú del celular, botón Mi IP | 114 |
+| `app.js` | Router y arranque | 128 |
+| `adjuntos.js` | Compresión de imágenes, subidas, pegar con Ctrl+V | 184 |
+| `paginacion.js` | Paginado, filtros y redibujado de listas | 206 |
+| `listas.js` | Tablas, orden por columna y vistas de listado | 218 |
+| `tiemporeal.js` | WebSocket y reconexión | 236 |
+| `feed.js` | Novedades | 255 |
+| `conocimiento.js` | Bases de conocimiento | 274 |
+| `chat.js` | Mensajes 1 a 1 y grupos | 351 |
+| `formularios.js` | Altas, ediciones y bajas | 366 |
+| `bloques.js` | Renderizado y editor de bloques de contenido | 446 |
+| `correo.js` | Webmail | 498 |
+| `unidades.js` | 🆕 Unidades de red: navegar, subir con avance, descargar, eliminar y la administración | 710 |
+
+`unidades.js` es el más largo porque reúne dos pantallas: la de uso y la de
+administración. Si sigue creciendo, la división natural es separar la
+administración en su propio archivo.
 
 ### Sin compilar nada, a propósito
 
@@ -570,11 +653,11 @@ reconstruir una cadena de herramientas que para entonces estará desactualizada.
 Un `export let` de un módulo ES se puede **leer** desde otro módulo pero no se
 puede **reasignar** desde afuera, y acá hay decenas de lugares que escriben
 estado ajeno: el router cambia de vista, cerrar sesión limpia el chat y el
-correo, el WebSocket agrega mensajes. Por eso los 23 valores que de verdad
+correo, el WebSocket agrega mensajes. Por eso los 32 valores que de verdad
 comparten varios módulos viven juntos en un objeto (`estado.js`), que sí se
 muta desde donde sea.
 
-Los otros 21 valores mutables **se quedaron dentro del módulo que los usa**: si
+Los otros 26 valores mutables **se quedaron dentro del módulo que los usa**: si
 solo le importan al correo, no tienen por qué ser visibles para el resto.
 
 ### Cómo se ordenaron las dependencias

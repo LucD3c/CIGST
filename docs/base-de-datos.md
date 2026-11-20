@@ -4,6 +4,11 @@
 > [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma); esto
 > es el mapa conceptual.
 
+> 🆕 **Nuevo en esta versión: tres tablas para las
+> [Unidades de red](#unidades-de-red-nuevo)** (`network_drives`,
+> `network_drive_access`, `network_drive_events`). Ninguna tabla existente
+> cambió.
+
 ## Entidades
 
 | Entidad | Tabla | Qué representa |
@@ -38,6 +43,9 @@
 | MailProvider | `mail_providers` | Servidor de correo configurado (solo Admin) |
 | MailAccount | `mail_accounts` | Casilla, con su contraseña cifrada |
 | MailAccess | `mail_access` | Quién puede usar una casilla compartida |
+| 🆕 NetworkDrive | `network_drives` | Unidad de red vinculada (\\servidor\recurso), con su contraseña cifrada |
+| 🆕 NetworkDriveAccess | `network_drive_access` | A quién está asignada una unidad (persona **o** sector) |
+| 🆕 NetworkDriveEvent | `network_drive_events` | Subidas y eliminaciones hechas desde la plataforma |
 | **Counter** | `counters` | Contador atómico de los códigos correlativos |
 | **LoginAttempt** | `login_attempts` | Intentos de inicio de sesión fallidos |
 
@@ -45,8 +53,9 @@
 
 - **Identificadores**: UUID en todas las tablas.
 - **Auditoría**: `createdAt` / `updatedAt` en todas las entidades de negocio.
-- **Borrado lógico** (`deletedAt`): Sector, Turno, Persona, Equipo, Ticket y
-  Bitácora. Un registro eliminado deja de listarse pero no se pierde.
+- **Borrado lógico** (`deletedAt`): Sector, Turno, Persona, Equipo, Ticket,
+  Bitácora y 🆕 Unidad de red. Un registro eliminado deja de listarse pero no
+  se pierde.
 - **Índices**: toda clave foránea tiene su índice; los mensajes del chat
   tienen índice compuesto `(conversation_id, created_at)` para la paginación.
 
@@ -67,6 +76,30 @@
 - **Attachment**: se elimina de verdad junto con su archivo físico. Los que
   quedan "sueltos" (subidos pero nunca enviados) los borra una rutina
   automática pasadas 24 h.
+- 🆕 **NetworkDriveAccess**: una asignación se borra de verdad al quitarla. Lo
+  que importa conservar (quién subió o eliminó qué) está en
+  `network_drive_events`, que no se toca.
+
+## Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué guarda:** qué carpetas compartidas están vinculadas, a quién están
+>   asignadas y quién subió o eliminó qué desde la plataforma.
+> - **Qué no guarda:** **ni los archivos ni la lista de archivos.** Eso vive en
+>   el servidor de archivos y se lee cada vez que alguien abre una carpeta.
+> - **Cómo está hecho:** tres tablas nuevas, creadas por la migración
+>   `20261118120000_unidades_de_red`. No modifica ninguna tabla existente.
+
+| Tabla | Qué tiene | Detalle |
+| --- | --- | --- |
+| `network_drives` | Una fila por unidad: nombre, servidor (`host`), recurso (`share`), subcarpeta (`base_path`), dominio, usuario y la contraseña **cifrada** (`secret_cipher`) | El estado y el último error de conexión (`last_error`, `last_checked_at`) sirven para marcar "Con error" en la pantalla. Desvincular pone `deleted_at`: la unidad deja de verse pero su historial queda |
+| `network_drive_access` | A quién está asignada: `user_id` **o** `sector_id`, nunca los dos | Un `CHECK` exige que haya exactamente uno. Dos índices únicos parciales impiden asignar dos veces la misma unidad a la misma persona o al mismo sector |
+| `network_drive_events` | Cada subida, eliminación e intento de eliminar con la contraseña equivocada: quién, qué ruta, cuánto pesaba y cuándo | Índice `(drive_id, created_at)` para la pantalla de Actividad. Si se borra la cuenta de quien lo hizo, el evento queda con `user_id` en `NULL` |
+
+Si un Administrador borra una cuenta (es un borrado real), sus asignaciones se
+borran en cascada y sus eventos quedan sin autor: nadie queda apuntando a algo
+que ya no existe.
 
 ## Dos tablas que no son de negocio
 

@@ -5,13 +5,17 @@ completa con capturas está en [PDF](Manual-de-uso-CIGST.pdf) para imprimir o
 compartir. Si todavía no la instalaste, ver antes
 [Cómo descargar](Como-descargar-CIGST.pdf) y [Cómo instalar](Como-instalar-CIGST.pdf).*
 
+> 🆕 **Nuevo en esta versión: [Unidades de red](#unidades-de-red-nuevo).** Las
+> carpetas compartidas de la empresa, dentro de la plataforma: ver, descargar,
+> subir y eliminar archivos sin mapear nada en Windows.
+
 ---
 
 ## ¿Qué es CIGST?
 
 CIGST es la plataforma interna de soporte técnico de la empresa: tickets,
-personas, equipos, sectores, chat interno con grupos y notificaciones — todo
-en un solo lugar. **Funciona solo dentro de la red de la empresa**: nada de
+personas, equipos, sectores, chat interno con grupos, notificaciones, correo y
+las carpetas compartidas de la red — todo en un solo lugar. **Funciona solo dentro de la red de la empresa**: nada de
 lo que se carga sale a internet.
 
 ---
@@ -43,9 +47,9 @@ desde el Panel administrador.
 
 | Rango | Qué puede hacer |
 | --- | --- |
-| **Administrador** | Todo: crea y edita personas, usuarios, equipos, sectores y turnos (cada edición deja registro de cambios), gestiona tickets, usa el chat, crea los grupos, publica en Novedades, crea bases de conocimiento y define sus permisos. Es el único que ve Bitácora técnica y Panel administrador. |
-| **Supervisor** | Ve todo el trabajo de soporte y lo opera: crea y gestiona tickets de cualquiera. **Publica en Novedades** (y administra lo suyo). Ve personas, equipos y sectores con sus historiales, pero **no puede crear ni editar** esos catálogos. No ve Bitácora ni Panel administrador. |
-| **User** | Crea tickets para sí mismo o para cualquier persona (con adjuntos) y ve solo sus propias solicitudes. Usa el chat (1 a 1 y los grupos donde lo agregaron). **Lee Novedades y comenta**, pero no publica. Entra a las **bases de conocimiento a las que le dieron permiso**. |
+| **Administrador** | Todo: crea y edita personas, usuarios, equipos, sectores y turnos (cada edición deja registro de cambios), gestiona tickets, usa el chat, crea los grupos, publica en Novedades, crea bases de conocimiento y define sus permisos. 🆕 **Vincula y asigna las unidades de red.** Es el único que ve Bitácora técnica y Panel administrador. |
+| **Supervisor** | Ve todo el trabajo de soporte y lo opera: crea y gestiona tickets de cualquiera. **Publica en Novedades** (y administra lo suyo). Ve personas, equipos y sectores con sus historiales, pero **no puede crear ni editar** esos catálogos. 🆕 Usa las **unidades de red que le asignaron**. No ve Bitácora ni Panel administrador. |
+| **User** | Crea tickets para sí mismo o para cualquier persona (con adjuntos) y ve solo sus propias solicitudes. Usa el chat (1 a 1 y los grupos donde lo agregaron). **Lee Novedades y comenta**, pero no publica. Entra a las **bases de conocimiento a las que le dieron permiso**. 🆕 Usa las **unidades de red que le asignaron**. |
 
 Los permisos se controlan en el servidor: lo que tu rango no permite, la
 plataforma lo rechaza aunque se intente por otra vía.
@@ -231,6 +235,122 @@ No es un servidor de correo. **No recibe correo de internet y no abre ningún
 puerto**: se conecta hacia afuera al proveedor, igual que Outlook desde
 cualquier PC. Tampoco guarda los correos en su base de datos — los pide al
 proveedor cuando hacen falta y los descarta.
+
+---
+
+## Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** te muestra las carpetas compartidas de la empresa adentro de
+>   CIGST, para descargar, subir y eliminar archivos sin mapear nada en Windows.
+> - **Cómo se usa:** *Unidades de red* en el menú. Ves las unidades que un
+>   Administrador te asignó. Para eliminar un archivo te pide la contraseña de
+>   la unidad.
+> - **Cómo está hecho:** CIGST se conecta al servidor de archivos igual que lo
+>   hace Windows, cada vez que abrís una carpeta. No guarda copias: lo que ves
+>   es lo que hay en el servidor en ese momento.
+
+![Unidades de red](img/unidades-de-red.png)
+
+Las carpetas compartidas de la empresa (las que en Windows se "mapean" como
+`Z:` o se abren con `\\servidor\carpeta`), **dentro de la plataforma**. Sirven
+para ver, descargar, subir y eliminar archivos desde cualquier computadora de la
+red, sin tener que mapear la unidad en Windows ni saber la ruta.
+
+Lo importante es que **no es una copia**: cada vez que abrís una carpeta, la
+plataforma la lee del servidor de archivos en ese momento, y lo que subís se
+guarda directamente ahí. Lo que ves en CIGST es exactamente lo mismo que se ve
+desde el Explorador de Windows, en el mismo instante.
+
+### Usar una unidad
+
+**Unidades de red** en el menú. Si tenés más de una, se elige arriba a la
+izquierda.
+
+- **Abrir una carpeta:** clic en la fila. Para volver, la ruta de arriba
+  (`Contabilidad › Informes 2026`) es clickeable, o la fila «Subir un nivel».
+- **Descargar:** botón *Descargar* en la fila del archivo.
+- **Subir:** botón *Subir archivos*, o **arrastrá los archivos desde el
+  Explorador** y soltalos sobre la carpeta abierta. Se ve el avance de cada uno.
+  Si tenés una subida en curso y querés cerrar la pestaña, el navegador te avisa.
+- **Eliminar:** botón *Eliminar* en la fila del archivo. **Pide la contraseña
+  de la unidad de red** (no la de CIGST): es la confirmación real de quién está
+  eliminando. El cuadro te dice de qué usuario es la contraseña que te pide.
+- **Actualizar:** si alguien acaba de agregar algo desde Windows, el botón
+  *Actualizar* vuelve a leer la carpeta.
+
+> **Los archivos no se sobreescriben nunca.** Si subís un archivo con un nombre
+> que ya existe en esa carpeta, la plataforma te avisa y no lo sube. Para
+> subirlo, eliminá el que está en la unidad o cambiale el nombre al tuyo.
+
+> **Eliminar es de verdad.** El archivo se borra del servidor de archivos para
+> todos los que usan esa unidad, también desde Windows. La plataforma no tiene
+> papelera de reciclaje para las unidades de red.
+
+![Eliminar pide la contraseña de la unidad](img/unidades-de-red-eliminar.png)
+
+Si escribís mal la contraseña cinco veces seguidas, hay que esperar 15 minutos.
+Es a propósito: muchos servidores de archivos **bloquean al usuario** después de
+varios intentos fallidos, y eso dejaría sin acceso a todos los que usan la unidad.
+
+### Si no ves ninguna unidad
+
+Las unidades las asigna un Administrador. Pedile que te asigne las carpetas que
+necesitás.
+
+### Vincular y asignar unidades (solo Administradores)
+
+![Administrar unidades](img/unidades-de-red-admin.png)
+
+**Unidades de red → Administrar unidades → + Vincular unidad.** Se completan:
+
+| Campo | Qué poner |
+| --- | --- |
+| Nombre | Cómo la van a ver las personas: *Contabilidad*, *Mis documentos* |
+| Ruta | Tal como se escribe en el Explorador: `\\192.168.1.10\Contabilidad` |
+| Usuario y contraseña | Los **del servidor de archivos**, no los de CIGST |
+| Dominio o grupo de trabajo | Opcional. También se puede escribir el usuario como `DOMINIO\usuario` |
+
+La plataforma **prueba la conexión antes de guardar**: si la ruta, el usuario o
+la contraseña están mal, te lo dice en el momento. Al guardar se abre directo la
+pantalla para **asignarla**:
+
+- A **una persona**: es su unidad personal.
+- A **varias personas o a un sector**: es una unidad compartida. Todos entran
+  con el mismo usuario de la unidad, y para eliminar archivos necesitan conocer
+  esa contraseña.
+
+> **Usá la dirección IP del servidor**, no su nombre. Un nombre como
+> `\\SERVIDOR` solo funciona si el DNS de la red lo conoce; Windows a veces lo
+> encuentra por otros medios que la plataforma no puede usar.
+
+> **La ruta puede apuntar a una subcarpeta**
+> (`\\192.168.1.10\Compartido\Contabilidad`). Quien la use solo ve esa parte y
+> no puede salir de ahí.
+
+Desde la misma pantalla:
+
+- **Probar:** comprueba que la unidad sigue respondiendo con la contraseña
+  guardada. Si la contraseña cambió en el servidor, la unidad queda marcada con
+  error hasta que se cargue la nueva en *Editar*.
+- **Actividad:** quién subió y quién eliminó qué, y cuándo, incluidos los
+  intentos de eliminar con la contraseña equivocada. Muestra lo que se hizo
+  desde la plataforma; lo que se hace directamente desde Windows no aparece.
+- **Desvincular:** la saca de la plataforma. **No borra nada del servidor de
+  archivos**: las carpetas y los archivos siguen exactamente donde estaban.
+
+Un Administrador **no ve el contenido** de una unidad por el solo hecho de ser
+Administrador, igual que no lee los chats ni el correo ajeno: configura, no
+mira. Si la necesita usar, se la asigna a sí mismo.
+
+### Lo que la plataforma NO hace
+
+**No crea carpetas compartidas ni recursos en el servidor de archivos.** Solo se
+conecta a las que ya existen, como haría Windows al mapear una unidad. El
+tamaño máximo de los archivos, las cuotas y los permisos de cada carpeta los
+sigue decidiendo quien administra el servidor de archivos: si ese usuario no
+puede escribir en una carpeta desde Windows, tampoco puede desde CIGST.
 
 ---
 
@@ -534,7 +654,23 @@ recargar la página no rompe nada.
 elegís vos: si configurás el **Correo**, el servidor se conecta a tu proveedor
 de correo (Gmail, tu hosting, el que sea) para traer y mandar los mensajes.
 Son conexiones **salientes**, como las de Outlook: nadie desde internet puede
-entrar a la plataforma.
+entrar a la plataforma. Las **Unidades de red** tampoco salen a internet: se
+conectan al servidor de archivos de la propia empresa.
+
+🆕 **No veo ninguna unidad de red.** Las asigna un Administrador, a vos o a tu
+sector. Pedile la que necesitás.
+
+🆕 **Quise subir un archivo y dice que ya existe.** Nunca se reemplaza un
+archivo que ya está en la unidad. Eliminá el que está allá o cambiale el nombre
+al tuyo, y volvé a subirlo.
+
+🆕 **¿Por qué para eliminar me pide otra contraseña?** Es la del usuario de la
+**unidad de red** (el cuadro te dice cuál), no la de CIGST. Así queda
+confirmado quién borra, porque el archivo desaparece para todos.
+
+🆕 **La unidad dice "Con error".** Casi siempre cambiaron la contraseña en el
+servidor de archivos. Un Administrador la actualiza en *Administrar unidades →
+Editar*.
 
 **Pegué una captura en el chat con Ctrl+V y no pasó nada.** Tiene que estar el
 cursor en el cuadro de escribir. Si copiaste texto en vez de una imagen, se
@@ -593,6 +729,9 @@ botón ☰ de arriba a la izquierda.
 
 Las tablas **no esconden columnas**: se desplazan de costado con el dedo, así
 que no se pierde ningún dato por estar mirando desde el teléfono.
+
+🆕 En **Unidades de red** cada archivo aparece como una tarjeta, con sus
+botones *Descargar* y *Eliminar* a la vista, sin desplazar nada.
 
 ![Menú en el celular](img/movil-menu.png)
 

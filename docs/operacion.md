@@ -8,6 +8,10 @@
 > [README](../README.md#instalación-en-3-pasos). Para ponerla detrás de HTTPS,
 > ver [puesta en producción](deployment-empresa.md).
 
+> 🆕 **Nuevo en esta versión: [Unidades de red](#unidades-de-red-nuevo).** Lo
+> único que pide a sistemas es que el servidor de CIGST llegue al servidor de
+> archivos por el puerto 445.
+
 ---
 
 ## Lo mínimo que hay que saber
@@ -34,6 +38,37 @@ por eso pide escribir una palabra de confirmación.
 Todo se maneja desde el menú del instalador (`./install.sh` en Linux,
 `install.bat` en Windows). No hace falta escribir comandos de Docker a mano,
 aunque se puede.
+
+---
+
+## Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** las carpetas compartidas del servidor de archivos de la
+>   empresa (Windows o Samba) se usan desde CIGST, sin mapearlas en cada PC.
+> - **Cómo se usa:** un Administrador las vincula en *Unidades de red →
+>   Administrar unidades* con la ruta, el usuario y la contraseña **del servidor
+>   de archivos**, y las asigna a personas o sectores. No se toca el `.env` ni
+>   ningún archivo.
+> - **Cómo está hecho:** el contenedor `app` trae el cliente oficial de Samba
+>   (`smbclient`) y lo usa para cada operación. Los archivos pasan por flujo:
+>   **no ocupan lugar en el disco de CIGST ni entran en sus copias de
+>   seguridad**, porque viven en el servidor de archivos.
+
+Lo que sistemas tiene que saber:
+
+| Tema | Qué hay que hacer |
+| --- | --- |
+| Red | El servidor de CIGST tiene que llegar al servidor de archivos por el **puerto 445/TCP**. Es una conexión saliente: no se abre nada hacia CIGST |
+| Ruta | Vincular por **dirección IP** (`\\192.168.1.10\Carpeta`). Los nombres tipo `\\SERVIDOR` solo funcionan si el DNS de la red los conoce |
+| Protocolo | SMB2 o SMB3. Los servidores que solo hablan **SMB1** no funcionan, a propósito |
+| Usuarios | Cada unidad usa un usuario del servidor de archivos. Los permisos y el tamaño máximo de archivo los decide ese servidor, no CIGST |
+| Clave | Las contraseñas de las unidades se cifran con `MAIL_ENCRYPTION_KEY`, la misma del correo. Si se pierde, hay que volver a cargarlas |
+| Copias | La copia de CIGST guarda qué unidades hay y a quién están asignadas. **Los archivos no**: se respaldan en el servidor de archivos |
+
+Los límites están en [Límites de tráfico vigentes](#límites-de-tráfico-vigentes)
+y los problemas típicos en [Diagnóstico](#una-unidad-de-red-no-conecta).
 
 ---
 
@@ -174,7 +209,8 @@ Guarda en `backups/AAAA-MM-DD_HH-MM/`:
   definida por el operador** (AES-256, 200.000 iteraciones de derivación)
 
 > **Por qué la configuración va aparte y cifrada.** El `.env` contiene la clave
-> con la que se descifran las contraseñas de las casillas de correo. Antes se
+> con la que se descifran las contraseñas de las casillas de correo (y 🆕 de las
+> unidades de red). Antes se
 > copiaba tal cual dentro de la misma carpeta, con lo cual la copia guardaba a
 > la vez los datos cifrados **y la llave para abrirlos**: quien se llevara el
 > pendrive se llevaba todo.
@@ -248,6 +284,11 @@ Salen en JSON, un objeto por línea. El campo `level` sigue la escala de `pino`:
 | `COOKIE_SECURE=false` | Trabaja por HTTP sin cifrar | Decisión propia (ver abajo) |
 | `La contraseña de la base de datos es todavía la de ejemplo` | **No arranca a propósito** | Cambiar `POSTGRES_PASSWORD` |
 | `Healthcheck: la base de datos no responde` | Postgres caído o pool agotado | Ver el servicio `db` |
+| 🆕 `Unidad de red vinculada` / `desvinculada` | Un Administrador agregó o quitó una unidad | Nada |
+| 🆕 `Archivo subido a una unidad de red` / `eliminado de` | Movimiento normal de una persona | Nada |
+| 🆕 `Eliminacion en unidad de red rechazada: contraseña incorrecta` | Alguien intentó eliminar con la contraseña equivocada | Si se repite mucho, revisar la *Actividad* de esa unidad |
+| 🆕 `Descarga de unidad de red interrumpida` | Se cortó una descarga a mitad de camino (la persona cerró la pestaña o se cayó la red) | Nada, salvo que sea constante |
+| 🆕 `No se pudo ejecutar smbclient` | Falta el cliente de Samba en el contenedor | Reconstruir con la opción 1 del instalador |
 
 ### Bajar o subir el detalle
 
@@ -306,19 +347,20 @@ sentido si también se sube `max_connections` de Postgres (por defecto 100).
 | `RETENTION_NOTIF_LEIDAS_DIAS` | `90` |
 | `RETENTION_NOTIF_SIN_LEER_DIAS` | `365` |
 
-### Correo
+### Correo y unidades de red
 
 | Variable | Qué hace |
 | --- | --- |
-| `MAIL_ENCRYPTION_KEY` | Clave con la que se cifran las contraseñas de las casillas |
+| `MAIL_ENCRYPTION_KEY` | Clave con la que se cifran las contraseñas de las casillas y 🆕 de las unidades de red |
 
-La genera el instalador. **Si falta, el módulo de Correo queda desactivado y el
-resto de la plataforma funciona igual** — falla cerrado a propósito: es
+La genera el instalador. **Si falta, Correo y Unidades de red quedan
+desactivados y el resto de la plataforma funciona igual** — falla cerrado a propósito: es
 preferible eso a cifrar con algo predecible.
 
 **Esta clave debe resguardarse.** Si se pierde, las contraseñas de las casillas
-guardadas son irrecuperables y hay que volver a cargarlas manualmente. No se
-pierde ningún correo: los mensajes residen en el servidor de correo, no en la
+y de las unidades guardadas son irrecuperables y hay que volver a cargarlas
+manualmente. No se pierde ningún correo ni ningún archivo: los mensajes residen
+en el servidor de correo y los archivos en el servidor de archivos, no en la
 plataforma.
 
 ### Otras
@@ -344,6 +386,9 @@ el servidor, sin molestar al uso normal.
 | Inundación de pedidos de login | 200 | 5 min | Dirección IP |
 | Mensajes de chat | 30 | 1 min | Usuario |
 | Subida de archivos | 40 | 10 min | Usuario |
+| 🆕 Operaciones con unidades de red | 240 | 1 min | Usuario |
+| 🆕 Eliminaciones en unidades de red | 30 | 1 min | Usuario |
+| 🆕 Contraseña de unidad equivocada al eliminar | 5 | 15 min | Usuario y unidad |
 | Resto de la API | 600 | 5 min | Usuario |
 | Mensajes por WebSocket | 30 | 1 min | Usuario |
 | Tramas por WebSocket | 240 | 1 min | Usuario |
@@ -351,6 +396,24 @@ el servidor, sin molestar al uso normal.
 Otros topes fijos: **10 MB por archivo**, **5 archivos por envío**, **64 KB por
 trama de WebSocket**, **400 conexiones simultáneas**, **200 filas por página**
 en cualquier listado.
+
+Las operaciones con unidades de red cuentan **además** dentro del límite general
+de la API (600 cada 5 minutos). Cada archivo subido es un solo pedido: en la
+práctica alcanza para unos 500 archivos cada 5 minutos por persona.
+
+Los archivos de las **unidades de red** no tienen tope de tamaño en la
+plataforma: lo decide quien administra el servidor de archivos (cuotas, espacio).
+Tampoco ocupan lugar en el disco de CIGST, porque pasan por flujo directo. Sí se
+acotan los procesos simultáneos: hasta 16 operaciones (listar, eliminar) y 10
+transferencias a la vez; el resto espera su turno unos segundos. Una subida
+puede durar hasta 2 horas.
+
+> **Requisito de red de las unidades:** la máquina donde corre CIGST tiene que
+> poder llegar al servidor de archivos por el **puerto 445** (es la misma
+> conexión que hace cualquier PC de la oficina al mapear una unidad). Si en la
+> empresa las PC ya mapean unidades, casi seguro llega. Conviene vincular las
+> unidades por **dirección IP**: los nombres tipo `\\SERVIDOR` solo funcionan si
+> el DNS de la red los conoce.
 
 > **Los ingresos correctos no consumen presupuesto.** Solo cuentan las
 > contraseñas equivocadas. Esto importa en una oficina donde todos salen por el
@@ -456,6 +519,23 @@ cargan de nuevo las contraseñas.
 Si en cambio dice que el correo no está habilitado, falta
 `MAIL_ENCRYPTION_KEY`: el instalador la genera sola con la opción 1.
 
+### "Una unidad de red no conecta"
+
+🆕 El mensaje de la pantalla dice cuál es el problema. Los más comunes:
+
+| Lo que dice | Qué revisar |
+| --- | --- |
+| No se pudo conectar / no responde | Que el servidor de CIGST llegue al servidor de archivos por el puerto 445, y que la ruta use la **IP** y no el nombre |
+| Rechazó el usuario o la contraseña | La contraseña cambió en el servidor de archivos: cargar la nueva en *Administrar unidades → Editar* |
+| El usuario está bloqueado | Muchos intentos fallidos contra el servidor de archivos. Lo desbloquea quien administra ese servidor |
+| No permite esta operación | El usuario de la unidad no puede leer o escribir esa carpeta. Se corrige en el servidor de archivos, no en CIGST |
+| No tiene una carpeta compartida con ese nombre | El nombre del recurso en la ruta está mal escrito (`\\IP\Nombre`) |
+| ¿Solo habla SMB1? | El servidor de archivos es muy viejo. Hay que habilitarle SMB2 o SMB3 |
+| Volver a cargar la contraseña | `MAIL_ENCRYPTION_KEY` no es la misma con la que se guardó (típico tras restaurar una copia). Restaurar el `.env` original o cargar la contraseña de nuevo |
+
+Para probar la conexión sin tocar nada, el botón **Probar** de *Administrar
+unidades* intenta entrar con la contraseña guardada y muestra el resultado.
+
 ### "El chat no actualiza solo"
 
 El WebSocket no está llegando. Si hay un proxy inverso adelante, casi seguro le
@@ -484,6 +564,11 @@ o cuando hay una duda concreta sobre si algo quedó bien.
 
 > Las suites **crean datos**. Están pensadas para una instalación de prueba, no
 > para la que usa la empresa todos los días.
+
+🆕 Las **Unidades de red** todavía no tienen una suite en `pruebas/`: se
+verificaron contra un servidor Samba de prueba (ver
+[pruebas/LEEME.md](../pruebas/LEEME.md)). En producción, la forma rápida de
+comprobar una unidad es el botón **Probar** de *Administrar unidades*.
 
 ---
 

@@ -4,9 +4,10 @@
 > contra la plataforma corriendo**. Cada línea de las tablas corresponde a una
 > comprobación ejecutada, no a una buena intención.
 >
-> **108 controles** en total: 79 de las rondas anteriores (secciones A a J) y
+> **124 controles** en total: 79 de las rondas anteriores (secciones A a J),
 > **29** en la sección K, verificados sobre la plataforma en funcionamiento
-> durante las rondas de corrección.
+> durante las rondas de corrección, y 🆕 **16** en la sección L, de las
+> [Unidades de red](#l--unidades-de-red-nuevo).
 >
 > Última ejecución: sobre la versión con listados paginados, retención de datos
 > sin uso, control de espacio en disco, compresión de imágenes en el servidor,
@@ -243,6 +244,39 @@ Todos verificados contra la plataforma en funcionamiento, no sobre el papel.
 
 ---
 
+## L · Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué se probó:** que desde las unidades de red nadie pueda ver lo que no le
+>   asignaron, salir de la carpeta vinculada, colar órdenes con un nombre de
+>   archivo, pisar un archivo existente ni eliminar sin la contraseña real.
+> - **Cómo se probó:** contra la plataforma corriendo, conectada a un servidor
+>   Samba 4 de prueba con archivos de muestra, por API directa y con archivos
+>   de hasta 500 MB.
+> - **Resultado:** 16 de 16.
+
+| # | Qué se verificó | Resultado |
+|---|---|---|
+| L1 | Solo un Administrador entra a la administración de unidades | Un usuario de rango User recibe 403 |
+| L2 | Sin asignación, **nadie** usa una unidad, tampoco el Administrador | 403 al abrirla, y no aparece en la lista de quien no la tiene asignada |
+| L3 | La contraseña de la unidad no sale en ninguna respuesta | Ni la contraseña ni el texto cifrado aparecen en lo que devuelve la API |
+| L4 | Una unidad con datos de conexión malos **no se guarda** | Contraseña equivocada → 409; recurso inexistente → 502; servidor con caracteres raros → 400. En los tres casos no se creó nada |
+| L5 | **Inyección de órdenes** con un nombre de archivo | Se subió `x; del balance.txt; O'Brien ñandú [v2] & 50%.bin` (5 MB): quedó entero, `balance.txt` sigue en su lugar y la descarga es idéntica (SHA-1) |
+| L6 | Nombres peligrosos rechazados | Nombre reservado de Windows, con comillas o con salto de línea → 400 |
+| L7 | No se puede **salir de la carpeta vinculada** | `..` → 400; barra invertida → 400. Una unidad vinculada a una subcarpeta solo ve esa subcarpeta |
+| L8 | **Nunca se sobreescribe** un archivo | Subir el mismo nombre con otras mayúsculas → 409 con la explicación, y el original intacto |
+| L9 | Eliminar exige la **contraseña real** de la unidad | Contraseña equivocada → 403 y el archivo sigue ahí; con la correcta se elimina |
+| L10 | No se eliminan carpetas | Pedir eliminar una carpeta → rechazado |
+| L11 | Freno por intentos fallidos al eliminar | Tras 5 intentos → 429, y sigue bloqueado aunque después se escriba la contraseña correcta |
+| L12 | Queda registro de cada movimiento | La Actividad muestra la subida, la eliminación y los intentos rechazados |
+| L13 | Las descargas nunca se abren dentro de la página | `application/octet-stream` + `nosniff`, como adjunto y con el nombre en UTF-8. Un archivo inexistente devuelve un error, no un archivo roto |
+| L14 | No quedan restos de subidas | Sin temporales visibles tras subir; una subida cortada a los 40 MB no dejó nada en el servidor |
+| L15 | Archivos grandes sin llenar CIGST | 500 MB subidos y bajados idénticos; 6 descargas simultáneas de 500 MB con la memoria del contenedor por debajo de ~210 MB |
+| L16 | Desvincular corta el acceso | Después de desvincular, la unidad responde 404 |
+
+---
+
 ## Lo que NO cubre esta auditoría
 
 Ser honesto sobre los límites es parte de la seguridad:
@@ -263,6 +297,11 @@ Ser honesto sobre los límites es parte de la seguridad:
   elige la persona, así la copia deja de contener a la vez los datos cifrados
   y la llave para abrirlos. Aun así, el volcado tiene los datos reales de la
   empresa: hay que guardarlo con el mismo cuidado que el servidor.
+- 🆕 **Un servidor de archivos Windows real.** La sección L se probó contra
+  Samba 4. Contra un Windows Server con firma SMB obligatoria hay que hacer la
+  primera prueba en la empresa: vincular una unidad y usar el botón **Probar**.
+  Tampoco cubre los permisos dentro del servidor de archivos, que los sigue
+  decidiendo ese servidor.
 - **Auditorías externas.** Esto lo escribió y lo probó quien construyó la
   plataforma. Una revisión independiente vería cosas distintas.
 
@@ -273,5 +312,9 @@ Ser honesto sobre los límites es parte de la seguridad:
 Las suites viven en [`pruebas/`](../pruebas/LEEME.md) y corren contra la
 plataforma en funcionamiento, dentro de contenedores descartables — no hace
 falta instalar nada en la máquina. Ahí está el comando exacto de cada una.
+
+🆕 La sección L todavía no tiene una suite en `pruebas/`, porque necesita un
+servidor de archivos. Cómo levantar uno de prueba está en
+[pruebas/LEEME.md](../pruebas/LEEME.md#unidades-de-red-nuevo).
 
 No es un documento que se escribe una vez: es una salida que se regenera.

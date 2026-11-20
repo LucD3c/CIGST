@@ -10,6 +10,11 @@ agrega cuando se requiere HTTPS con certificado propio, un nombre de host
 legible (`soporte.empresa.local` en lugar de `10.0.0.15:3000`) o publicar varias
 aplicaciones en el mismo servidor.
 
+> 🆕 **Nuevo en esta versión: Unidades de red.** Si hay un proxy adelante,
+> necesita **un bloque más** para que los archivos grandes de las unidades no se
+> corten. Está en la configuración de abajo y explicado en
+> [Unidades de red detrás del proxy](#unidades-de-red-detrás-del-proxy-nuevo).
+
 ---
 
 ## Lo primero: el WebSocket
@@ -75,6 +80,26 @@ server {
         # así que 1 hora es holgado y las conexiones muertas igual se limpian.
         proxy_read_timeout  3600s;
         proxy_send_timeout  3600s;
+    }
+
+    # ---- 🆕 Unidades de red: archivos de cualquier tamaño ----
+    location /api/drives/ {
+        proxy_pass http://cigst;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # El tamaño máximo lo decide el servidor de archivos, no el proxy.
+        client_max_body_size 0;
+        # Pasar el archivo a medida que llega, sin guardarlo antes en el disco
+        # de nginx (en los dos sentidos: subida y descarga).
+        proxy_request_buffering off;
+        proxy_buffering off;
+        # Una transferencia grande puede tardar; la plataforma acepta hasta 2 h.
+        proxy_read_timeout  7200s;
+        proxy_send_timeout  7200s;
     }
 
     # ---- Resto de la aplicación ----
@@ -191,11 +216,45 @@ TRUST_PROXY=true
     ProxyPassReverse / http://127.0.0.1:3000/
     RequestHeader set X-Forwarded-Proto "https"
     LimitRequestBody 62914560
+
+    # 🆕 Unidades de red: sin tope de tamaño (lo decide el servidor de archivos)
+    # y con margen de tiempo para transferencias largas.
+    <Location /api/drives/>
+        LimitRequestBody 0
+    </Location>
+    ProxyTimeout 7200
 </VirtualHost>
 ```
 
 El módulo `proxy_wstunnel` es el equivalente de las dos cabeceras de nginx: sin
 él, Apache tampoco reenvía el upgrade.
+
+---
+
+## Unidades de red detrás del proxy (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** las personas suben y descargan archivos de las carpetas
+>   compartidas de la empresa desde CIGST.
+> - **Qué cambia en el proxy:** las rutas `/api/drives/` necesitan su propio
+>   bloque, porque esos archivos no tienen tope de tamaño y pueden tardar.
+> - **Cómo está hecho:** CIGST pasa los archivos por flujo entre el navegador
+>   y el servidor de archivos, sin guardarlos. El bloque de nginx hace lo mismo
+>   del lado del proxy.
+
+Sin ese bloque, pasan dos cosas:
+
+- **Las subidas de más de 60 MB fallan con un 413**, porque el
+  `client_max_body_size 60m` del resto de la aplicación también se aplica a las
+  unidades. (Comprobado: 100 MB por el bloque de unidades llegan a la
+  plataforma; por el bloque general, nginx los corta con 413.)
+- **nginx guarda cada archivo en su propio disco** antes de pasarlo, y una
+  subida de varios GB puede llenar ese disco.
+
+Además, el servidor donde corre CIGST tiene que llegar al servidor de archivos
+por el **puerto 445/TCP**. Es una conexión saliente desde CIGST: no hay que
+abrir nada hacia afuera ni tocar el proxy por eso.
 
 ---
 
@@ -270,3 +329,6 @@ lugar de `127.0.0.1` va la IP de esa placa.
 | Se puede entrar por HTTP salteando el proxy | La plataforma escucha en toda la red | `APP_BIND=127.0.0.1` en el `.env` (**después** de verificar que el proxy anda) |
 | Nadie entra por ningún lado | `APP_BIND=127.0.0.1` puesto antes de tener el proxy listo | Volver a `APP_BIND=0.0.0.0` y reiniciar |
 | El correo deja de funcionar tras mover la plataforma | La clave `MAIL_ENCRYPTION_KEY` del `.env` no es la misma | Restaurar el `.env` original, o recargar las contraseñas de las casillas |
+| 🆕 Subir un archivo grande a una unidad de red falla con 413 | El bloque `/api/drives/` no está en el proxy | Agregarlo (ver la configuración de nginx de arriba) |
+| 🆕 Las unidades de red dicen que no se puede llegar al servidor de archivos | El servidor de CIGST no llega al puerto 445 del servidor de archivos | Abrir esa salida en el firewall interno, y vincular la unidad por IP |
+| 🆕 Las unidades piden volver a cargar la contraseña tras mover la plataforma | Misma causa que el correo: otra `MAIL_ENCRYPTION_KEY` | Restaurar el `.env` original, o volver a cargar la contraseña de cada unidad |

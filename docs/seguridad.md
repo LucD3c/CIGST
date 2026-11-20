@@ -2,8 +2,12 @@
 
 > Este documento explica **cómo** está protegida la plataforma. Si lo que
 > buscás es **la prueba** de que esas protecciones funcionan, está en
-> [auditoria-seguridad.md](auditoria-seguridad.md): 108 controles ejecutados
+> [auditoria-seguridad.md](auditoria-seguridad.md): 124 controles ejecutados
 > contra la plataforma corriendo.
+
+> 🆕 **Nuevo en esta versión: [Unidades de red](#unidades-de-red-nuevo).** Qué
+> riesgos agrega conectarse al servidor de archivos de la empresa y cómo se
+> cierra cada uno.
 
 ## Autenticación y sesiones
 
@@ -49,6 +53,8 @@ interfaz oculta también está bloqueado en la API (devuelve `403`):
 | Chat interno (1 a 1 y grupos donde es miembro) | ✅ | ✅ | ✅ |
 | Crear/editar grupos de chat | ✅ | ❌ | ❌ |
 | Notificaciones propias (campanita) | ✅ | ✅ | ✅ |
+| 🆕 Vincular, editar, asignar y desvincular unidades de red | ✅ | ❌ | ❌ |
+| 🆕 Usar una unidad de red (ver, descargar, subir, eliminar) | solo las asignadas | solo las asignadas | solo las asignadas |
 
 ### Historiales de cambios (auditoría liviana)
 
@@ -110,9 +116,16 @@ Protecciones específicas del chat:
 | Inundación de pedidos de login | 200 | 5 min | Dirección IP (en memoria) |
 | Mensajes de chat | 30 | 1 min | Usuario |
 | Subida de archivos | 40 | 10 min | Usuario |
+| 🆕 Operaciones con unidades de red | 240 | 1 min | Usuario |
+| 🆕 Eliminaciones en unidades de red | 30 | 1 min | Usuario |
+| 🆕 Contraseña de unidad equivocada al eliminar | 5 | 15 min | Usuario y unidad |
 | Resto de la API | 600 | 5 min | Usuario |
 | Mensajes por WebSocket | 30 | 1 min | Usuario |
 | Tramas por WebSocket | 240 | 1 min | Usuario |
+
+Las operaciones con unidades de red cuentan **además** dentro del límite general
+de la API (600 cada 5 minutos). Como cada archivo subido es un solo pedido, en
+la práctica alcanza para unos 500 archivos cada 5 minutos por persona.
 
 ### Por qué el límite por IP del login es tan alto
 
@@ -139,6 +152,10 @@ minutos contra cuentas ilimitadas, y reiniciar el contenedor lo reseteaba todo.
 10 MB por archivo · 5 archivos por envío · 64 KB por trama de WebSocket ·
 400 conexiones simultáneas · **200 filas por página** en cualquier listado
 (el cliente no lo puede subir: aunque pida 100.000, recibe 200).
+
+🆕 Los 10 MB por archivo son de los adjuntos de CIGST. Los archivos de las
+**unidades de red** no tienen tope en la plataforma: el tamaño lo decide el
+servidor de archivos, y no ocupan lugar en el disco de CIGST.
 
 ## Archivos adjuntos
 
@@ -384,6 +401,53 @@ tocar el firewall de entrada ni exponer nada.
 > de pacientes. La plataforma no los guarda —pide al proveedor lo que necesita
 > y lo descarta—, pero conviene decidirlo con quien lleve el tema de protección
 > de datos en la empresa antes de configurarlo.
+
+---
+
+## Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** conecta CIGST a carpetas compartidas que ya existen en un
+>   servidor de archivos, para que cada persona use las suyas desde el navegador.
+> - **Cómo se usa:** solo un Administrador las vincula y las asigna. Cada
+>   persona ve únicamente las que le asignaron, y para eliminar escribe la
+>   contraseña de la unidad.
+> - **Cómo está hecho (desde la seguridad):** la contraseña de cada unidad se
+>   guarda cifrada. Los nombres de archivo nunca se mezclan con órdenes. No se
+>   puede salir de la carpeta vinculada. Nunca se pisa un archivo existente.
+>   Eliminar lo autoriza el propio servidor de archivos.
+
+La plataforma se conecta a carpetas compartidas (SMB/Samba) que **ya existen**
+en un servidor de archivos de la empresa. Igual que con el correo, no abre
+ningún puerto: es una conexión *saliente* al puerto 445 del servidor de
+archivos, la misma que hace el Explorador de Windows al mapear una unidad.
+
+La conexión la hace `smbclient`, el cliente oficial del proyecto Samba, que
+habla SMB2 y SMB3 con firma y cifrado. SMB1 no se admite.
+
+| Riesgo | Cómo se cierra | Verificado |
+|---|---|---|
+| Guardar la contraseña de la unidad | AES-256-GCM con la **misma clave** que el correo (`MAIL_ENCRYPTION_KEY`, en el `.env`, nunca en la base). Sin esa clave la función queda desactivada | Ninguna respuesta devuelve la contraseña ni el cifrado |
+| Inyectar órdenes en `smbclient` con un nombre de archivo | Con `-c`, smbclient corta las órdenes en cada `;` **aunque esté entre comillas**. Por eso ningún nombre ajeno va jamás en `-c`: las órdenes van por la entrada estándar, una por línea, y los nombres no pueden tener saltos de línea, comillas, barras invertidas ni comodines | Un archivo llamado `x; del balance.txt` se sube y se descarga entero, y `balance.txt` sigue en su lugar |
+| Salir de la carpeta vinculada | Cada segmento de la ruta se valida; `..`, `.` y `\` se rechazan. Una unidad vinculada a una subcarpeta no puede ver el resto del recurso | 400 para `..` y para rutas con barra invertida |
+| Eliminar más de un archivo | Solo se eliminan archivos de a uno (nunca carpetas), y como los nombres no admiten `*` ni `?`, la orden nunca alcanza a más de un archivo | Intentar eliminar una carpeta → rechazado |
+| Eliminar sin autorización real | La eliminación se ejecuta con la contraseña que **escribe la persona en ese momento**, no con la guardada: es el propio servidor de archivos el que la valida | Contraseña equivocada → 403 y el archivo sigue ahí |
+| Adivinar la contraseña de la unidad desde la plataforma | 5 intentos fallidos por persona y unidad → 15 minutos de espera, aun con la contraseña correcta. Protege además a la unidad: muchos servidores bloquean al usuario tras varios fallos | Verificado (429) |
+| Pisar un archivo existente | Se sube con un nombre temporal y después se renombra. El servidor de archivos rechaza el renombrado si el nombre ya existe (de forma atómica, aunque otra persona lo haya creado un segundo antes) | Subir `BALANCE.txt` sobre `balance.txt` → 409 y el original intacto |
+| Restos de una subida cortada | Si se cancela o se corta la conexión, se borra el temporal. Si no se pudiera, queda oculto en los listados | Subida cortada a los 40 MB: no quedó nada en el servidor |
+| Que cualquiera configure unidades | Vincular, editar, asignar y desvincular es exclusivo del Administrador | 403 para el resto |
+| Que un Administrador vea archivos ajenos | Solo usa una unidad quien la tiene asignada (por persona o por sector). **Un Administrador no ve el contenido** por serlo | 403 sin asignación, también para el Administrador |
+| Malware en un archivo de la unidad | Las descargas van siempre como adjunto, `application/octet-stream` y `nosniff`: nunca se abren dentro de la página | — |
+| Llenar el disco o la memoria de CIGST | Los archivos **no pasan por el disco** de la plataforma: van del navegador a smbclient (y al revés) por flujo. Hay un tope de procesos smbclient simultáneos | 6 descargas simultáneas de 500 MB: la memoria del contenedor no pasó de ~210 MB |
+| Martillar el servidor de archivos | Límite propio: 240 operaciones por minuto y 30 eliminaciones por minuto por persona | — |
+
+> **Lo que hay que asumir con los ojos abiertos.** Igual que con el correo,
+> para conectarse hay que poder descifrar la contraseña de la unidad. Quien
+> tenga a la vez una copia de la base **y** el `.env` puede recuperarla. Y en
+> una unidad compartida, todos los asignados entran con el mismo usuario del
+> servidor de archivos: los permisos de cada carpeta los sigue decidiendo ese
+> servidor, no CIGST.
 
 ---
 

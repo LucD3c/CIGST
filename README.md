@@ -3,7 +3,7 @@
 # CIGST
 ### Centro Integral de Gestión de Soporte Técnico
 
-**Correo · Feed de novedades · Bases de conocimiento · Tickets · Chat en tiempo real**
+**Correo · Unidades de red · Feed de novedades · Bases de conocimiento · Tickets · Chat en tiempo real**
 
 Todo en un solo lugar, corriendo **100% dentro de la red de la empresa** —
 sin depender de internet ni de ningún servicio externo, en ningún momento.
@@ -13,11 +13,27 @@ sin depender de internet ni de ningún servicio externo, en ningún momento.
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.14-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](backend/tsconfig.json)
 [![npm audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilidades-brightgreen)](docs/seguridad.md)
-[![Auditoría](https://img.shields.io/badge/auditoría%20de%20seguridad-108%2F108-brightgreen)](docs/auditoria-seguridad.md)
+[![Auditoría](https://img.shields.io/badge/auditoría%20de%20seguridad-124%2F124-brightgreen)](docs/auditoria-seguridad.md)
 [![Sin llamadas externas](https://img.shields.io/badge/tráfico-solo%20red%20interna-informational)](docs/seguridad.md)
 [![Uso](https://img.shields.io/badge/uso-interno%20%2F%20privado-lightgrey)](#)
 
 </div>
+
+> 🆕 **Nuevo: Unidades de red**
+>
+> - **Qué hace:** las carpetas compartidas que la empresa ya tiene en su
+>   servidor de archivos (Windows o Samba) se usan desde CIGST: ver, descargar,
+>   subir y eliminar archivos sin mapear la unidad en cada PC.
+> - **Cómo se usa:** un Administrador vincula la carpeta (ruta, usuario y
+>   contraseña del servidor de archivos) y la asigna a personas o a sectores.
+>   Cada uno la abre en *Unidades de red*. Para eliminar se pide la contraseña
+>   de la unidad, y nunca se reemplaza un archivo que ya existe.
+> - **Cómo está hecho:** CIGST se conecta al servidor de archivos con el
+>   cliente oficial de Samba, igual que una PC que mapea una unidad. No guarda
+>   copias: cada carpeta se lee en el momento y lo que se sube va directo al
+>   servidor. La contraseña de cada unidad se guarda cifrada.
+>
+> Detalle en el [Manual de uso](docs/guia-usuario.md#unidades-de-red-nuevo).
 
 <br>
 
@@ -47,8 +63,10 @@ resto de la empresa accede desde el navegador de siempre.
 elige a propósito: si se configura el **Correo**, el servidor se conecta al
 proveedor de correo de la empresa para traer y enviar los mensajes. Son
 conexiones **salientes** —como las de Outlook—, no se abre ningún puerto y
-nadie desde internet puede entrar. Sin configurar correo, no sale un byte. El
-detalle completo está en [Seguridad](docs/seguridad.md).
+nadie desde internet puede entrar. Sin configurar correo, no sale un byte. Las
+**Unidades de red** tampoco salen a internet: se conectan al servidor de
+archivos de la propia empresa, dentro de la red, igual que una PC que mapea una
+unidad. El detalle completo está en [Seguridad](docs/seguridad.md).
 
 ## Por qué existe
 
@@ -67,6 +85,7 @@ detalle completo está en [Seguridad](docs/seguridad.md).
 | Los avisos de la empresa se pierden en un grupo de WhatsApp | Feed de novedades, con la grilla del sábado como tabla y no como captura |
 | Las claves de las obras sociales, en un Excel que circula por mail | Bases de conocimiento por área, con permisos y datos sensibles tapados |
 | Dos pestañas abiertas: el correo propio y el del sector | Las dos casillas en la misma pantalla, sin salir de la plataforma |
+| Para abrir la carpeta compartida hay que mapear la unidad en cada PC | 🆕 Las carpetas del servidor de archivos, desde el navegador, sin mapear nada |
 | Una foto del celular ocupa 5 MB en el servidor | Las imágenes se comprimen solas, en el navegador y también en el servidor: una foto de celular ocupa **unas 10 veces menos** |
 
 ## Funciones principales
@@ -78,6 +97,15 @@ detalle completo está en [Seguridad](docs/seguridad.md).
   cPanel/Roundcube o un servidor propio — y **se configura desde la pantalla**,
   sin tocar archivos ni código. No es un servidor de correo: solo hace
   conexiones salientes, como Outlook. No abre ningún puerto.
+- 🗄️ **Unidades de red** 🆕 *Nuevo* — las carpetas compartidas que la empresa **ya
+  tiene** en su servidor de archivos (Windows o Samba), dentro de la
+  plataforma: ver, descargar, subir (también arrastrando desde el Explorador) y
+  eliminar archivos sin mapear la unidad en Windows. **No es una copia**: cada
+  carpeta se lee del servidor en el momento y lo que se sube se guarda ahí, así
+  que siempre se ve lo mismo que desde Windows. Las vincula un Administrador y
+  las asigna a personas o a sectores. Eliminar pide la **contraseña de la
+  unidad** y **nunca se sobreescribe** un archivo existente. La plataforma no
+  crea carpetas en el servidor: solo se conecta a las que ya existen.
 - 📰 **Feed de novedades** — el tablero de la empresa: avisos, novedades y la
   grilla de puestos del sábado. Publican Administradores y Supervisores; lo lee
   todo el personal. Se puede **pegar una tabla desde Excel** y queda como tabla
@@ -307,7 +335,7 @@ completo enseguida.
 
 Detalle completo, con la matriz de permisos por rol y la privacidad del
 chat explicada punto por punto: **[docs/seguridad.md](docs/seguridad.md)**.
-Y **108 controles ejecutados** contra la plataforma corriendo, no declarados:
+Y **124 controles ejecutados** contra la plataforma corriendo, no declarados:
 **[docs/auditoria-seguridad.md](docs/auditoria-seguridad.md)**.
 
 ## Problemas comunes
@@ -321,6 +349,8 @@ Y **108 controles ejecutados** contra la plataforma corriendo, no declarados:
 | No se pueden subir archivos | El almacenamiento llegó al tope. Nada de lo guardado se perdió: opción **9) Liberar espacio** del menú, o ampliar `UPLOADS_MAX_GB` en el `.env`. |
 | "Demasiados intentos fallidos" al entrar | Se erró la contraseña 8 veces. Se destraba solo a los 15 minutos, o un Administrador la restablece desde el Panel administrador. |
 | El correo pide volver a escribir las contraseñas | La clave de cifrado del servidor cambió (típico tras restaurar una copia en un servidor nuevo). **No se perdió ningún correo**: los mensajes están en el servidor de correo. Hay que recargar la contraseña de cada casilla. |
+| 🆕 Una unidad de red aparece "Con error" | Casi siempre cambió la contraseña en el servidor de archivos. Un Administrador la carga de nuevo en *Unidades de red → Administrar unidades → Editar*. |
+| 🆕 No se puede vincular una unidad de red | Usar la **dirección IP** del servidor (`\\192.168.1.10\Carpeta`) en lugar del nombre, y confirmar que el servidor de CIGST llega al servidor de archivos por el **puerto 445**. Detalle en la [guía de operación](docs/operacion.md). |
 | Cualquier otro error del instalador | El detalle técnico completo queda en `install.log`, en esta misma carpeta. |
 
 > Para diagnóstico más a fondo —qué dicen los registros, cómo verificar que la
@@ -331,7 +361,7 @@ Y **108 controles ejecutados** contra la plataforma corriendo, no declarados:
 
 | Documento | Para quién |
 | --- | --- |
-| 📘 **[Manual de uso](docs/guia-usuario.md)** ([PDF](docs/Manual-de-uso-CIGST.pdf)) | Cualquier persona — cómo se usa la plataforma día a día, con capturas. |
+| 📘 **[Manual de uso](docs/guia-usuario.md)** ([PDF](docs/Manual-de-uso-CIGST.pdf)) | Cualquier persona — cómo se usa la plataforma día a día, con capturas. 🆕 Incluye Unidades de red. |
 | ⬇️ **[Cómo descargar la plataforma](docs/Como-descargar-CIGST.pdf)** (PDF) | Quien va a instalarla — Windows y Linux, paso a paso. |
 | ⚙️ **[Cómo instalar la plataforma](docs/Como-instalar-CIGST.pdf)** (PDF) | Quien va a instalarla — máximo detalle, Windows y Linux. |
 | 🔧 **[Instaladores: análisis técnico](docs/instaladores.md)** | Quien prueba/audita `install.sh`/`install.ps1`. |
@@ -341,7 +371,7 @@ Y **108 controles ejecutados** contra la plataforma corriendo, no declarados:
 | 🗄️ **[Modelo de datos](docs/base-de-datos.md)** | Desarrolladores — entidades, convenciones, migraciones. |
 | 🧪 **[Pruebas](pruebas/LEEME.md)** | Quien quiera verificar la plataforma: 106 comprobaciones automatizadas. |
 | 🔐 **[Seguridad](docs/seguridad.md)** | Cualquiera evaluando si confiar en la plataforma. |
-| 🛡️ **[Auditoría de seguridad](docs/auditoria-seguridad.md)** | 108 controles **probados** contra la plataforma corriendo, no declarados. |
+| 🛡️ **[Auditoría de seguridad](docs/auditoria-seguridad.md)** | 124 controles **probados** contra la plataforma corriendo, no declarados. |
 
 ---
 

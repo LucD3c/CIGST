@@ -6,6 +6,19 @@
 > y qué esperar en cada sistema operativo. Si solo querés instalar la
 > plataforma, con el [README](../README.md) alcanza.
 
+> 🆕 **Nuevo en esta versión — Unidades de red, en pocas palabras**
+>
+> - **Qué hace:** deja usar desde CIGST las carpetas compartidas del servidor
+>   de archivos de la empresa.
+> - **Qué cambia en la instalación:** **nada que haya que hacer a mano.** La
+>   opción 1 de siempre reconstruye la imagen, y la imagen ahora trae además el
+>   cliente de Samba (`samba-client`). La migración que crea las tablas nuevas
+>   se aplica sola.
+> - **Cómo está hecho:** `samba-client` se instala desde el repositorio oficial
+>   de paquetes de Alpine, igual que `openssl`, que ya venía. No se pregunta
+>   nada nuevo: las contraseñas de las unidades se cifran con la misma
+>   `MAIL_ENCRYPTION_KEY` que el instalador ya genera para el correo.
+
 ## Por qué existe un instalador (y qué es "instalar" acá)
 
 CIGST no es un programa que se instala en el sistema operativo en el
@@ -106,10 +119,14 @@ Setup-Env  →  docker compose up -d --build  →  espera de salud  →  resumen
 
 ### ¿Esto "descarga dependencias"? ¿De dónde?
 
-Sí, y de exactamente dos lugares, ambos oficiales:
+Sí, y de exactamente tres lugares, todos oficiales:
 
 - **Docker Hub** (`hub.docker.com`): las imágenes base `node:20.20.2-alpine`
   y `postgres:16.14-alpine`, ambas con tag de versión fijo (nunca `latest`).
+- **El repositorio de paquetes de Alpine** (`dl-cdn.alpinelinux.org`):
+  `openssl` (lo necesita Prisma) y 🆕 `samba-client` (el cliente de Samba
+  con el que se conectan las Unidades de red). Son paquetes de la misma
+  versión de Alpine que la imagen base.
 - **El registro oficial de npm** (`registry.npmjs.org`): los paquetes
   declarados en `backend/package.json`, con las versiones exactas
   congeladas en `backend/package-lock.json` (`npm ci` instala *exactamente*
@@ -171,6 +188,7 @@ El código y los datos viven en lugares distintos:
 | Base de datos | Volumen `cigst_pgdata` | **Intacto** |
 | Archivos adjuntos | Volumen `cigst_uploads` | **Intacto** |
 | Configuración y contraseñas | `.env` (fuera del repo) | **Intacto** |
+| 🆕 Archivos de las unidades de red | El servidor de archivos de la empresa | **Ni se tocan**: nunca estuvieron en CIGST |
 
 `docker compose up -d --build` (lo que hace la opción 1) recrea contenedores,
 pero **nunca toca los volúmenes**. Lo único que los borra es

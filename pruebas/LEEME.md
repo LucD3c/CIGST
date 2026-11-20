@@ -99,6 +99,50 @@ Resultado de referencia en una máquina de escritorio común: 70/70 sesiones,
 70/70 conexiones de tiempo real, 2.100 peticiones, **cero errores**, p95 de
 853 ms, 145 peticiones por segundo.
 
+## Unidades de red (Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué es:** la sección que deja usar desde CIGST las carpetas compartidas
+>   de un servidor de archivos (Windows o Samba).
+> - **Cómo se prueba:** todavía **no tiene una suite** en esta carpeta, porque
+>   necesita un servidor de archivos. Abajo está cómo levantar uno de prueba en
+>   un minuto.
+> - **Cómo se verificó:** contra un servidor Samba de prueba, con 48
+>   comprobaciones por API y un recorrido en navegador real. Detalle en
+>   [la auditoría de seguridad](../docs/auditoria-seguridad.md#l--unidades-de-red-nuevo).
+
+### Un servidor de archivos de prueba
+
+Crea una carpeta compartida `Contabilidad`, con el usuario `juan` y la
+contraseña `Clave-Juan-1`, dentro de la misma red de Docker que la plataforma.
+**Es solo para probar**: no usar estas contraseñas en ningún lado.
+
+```bash
+docker build -t cigst-samba-prueba - <<'EOF'
+FROM alpine:3.20
+RUN apk add --no-cache samba-server samba-common-tools \
+ && adduser -D -H juan && mkdir -p /shares/Contabilidad && chown juan /shares/Contabilidad \
+ && printf '[global]\n  workgroup = OFICINA\n  server role = standalone server\n  map to guest = never\n  server min protocol = SMB2_10\n[Contabilidad]\n  path = /shares/Contabilidad\n  valid users = juan\n  read only = no\n' > /etc/samba/smb.conf \
+ && (echo 'Clave-Juan-1'; echo 'Clave-Juan-1') | smbpasswd -s -a juan
+CMD ["smbd", "--foreground", "--no-process-group", "--debug-stdout"]
+EOF
+
+docker run -d --name cigst-samba-prueba --network "$NET" \
+  --network-alias archivos cigst-samba-prueba
+```
+
+Después, en la plataforma: *Unidades de red → Administrar unidades → +
+Vincular unidad*, con la ruta `\\archivos\Contabilidad`, usuario `juan`, dominio
+`OFICINA` y contraseña `Clave-Juan-1`. Asignátela y probá subir, descargar y
+eliminar.
+
+Para borrarlo al terminar:
+
+```bash
+docker rm -f cigst-samba-prueba && docker rmi cigst-samba-prueba
+```
+
 ## Sobre correr esto en producción
 
 Las suites **crean datos** (equipos, usuarios, artículos, adjuntos). Están
