@@ -242,9 +242,16 @@ reinicio.
 
 **Requisitos:** `git` instalado (`sudo apt install git`), la plataforma
 encendida (la copia de la base la necesita), al menos 1 GB libre e internet
-hacia GitHub. Ejecutar siempre **con el mismo usuario** de siempre: si la
-carpeta es de otro usuario, git se niega a leerla y el instalador explica cómo
-autorizarla.
+hacia GitHub.
+
+**Carpeta de un usuario, instalador como root.** Es lo habitual en un
+servidor: la carpeta es de un usuario (por ejemplo `administrador`) y el
+instalador se ejecuta como `root`. Por seguridad, git se niega a trabajar en
+una carpeta ajena ("dubious ownership"). El instalador lo resuelve solo:
+autoriza **esa carpeta** y **solo mientras corre**, con una configuración
+temporal, sin cambiar la configuración de git del servidor. Los archivos del
+código que reescribe vuelven a quedar a nombre del dueño de la carpeta, como
+estaban.
 
 Qué hace, en orden, y qué pasa si algo falla en cada paso:
 
@@ -303,6 +310,11 @@ real), con una versión anterior instalada y con datos:
   la base idéntica y sin rastro de la migración fallida.
 - Archivo editado a mano: se reemplaza y la versión editada queda en la copia.
   Un archivo propio de la empresa en la carpeta sigue intacto.
+- Carpeta de un usuario (`administrador`) con el instalador ejecutado como
+  `root`, como en un servidor real, tanto ZIP como clon con git: actualiza con
+  los datos idénticos, los archivos siguen siendo del usuario y la
+  configuración de git del servidor no cambia. Si GitHub no responde, muestra
+  el motivo real y no crea ni borra ningún archivo.
 - Segunda ejecución: dice que ya está al día y no toca nada.
 - Instalar desde otra carpeta habiendo datos: frena y no crea nada.
 

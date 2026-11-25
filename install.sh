@@ -403,6 +403,8 @@ REPO_URL_DEFECTO="https://github.com/LucD3c/CIGST.git"
 RAMA_ACTUALIZACION="main"
 GIT_CREADO_ACA=0
 
+DUENO_CARPETA=""
+
 # Si la vinculacion con GitHub se cancela o falla a mitad de camino, se borra
 # la carpeta .git que se acababa de crear: la carpeta queda como estaba.
 deshacer_git_creado() {
@@ -410,6 +412,40 @@ deshacer_git_creado() {
     rm -rf ./.git
     GIT_CREADO_ACA=0
   fi
+}
+
+# git se niega a trabajar en una carpeta que pertenece a OTRO usuario del
+# sistema ("dubious ownership"). Es el caso tipico de un servidor: la carpeta
+# es de un usuario (por ejemplo "administrador") y el instalador se ejecuta
+# como root. En vez de pedir que se cambie la configuracion de git del
+# servidor, se autoriza SOLO esta carpeta y SOLO mientras corre el instalador,
+# con un archivo de configuracion temporal que incluye la configuracion
+# habitual del usuario. Nada queda modificado en el sistema.
+preparar_git() {
+  DUENO_CARPETA=$(stat -c '%u:%g' . 2>/dev/null || stat -f '%u:%g' . 2>/dev/null || true)
+  local cfg
+  cfg=$(mktemp 2>/dev/null) || return 0
+  {
+    printf '[include]\n\tpath = %s/.gitconfig\n' "${HOME:-/root}"
+    printf '[safe]\n\tdirectory = %s\n' "$(pwd -P)"
+  } > "$cfg" || return 0
+  export GIT_CONFIG_GLOBAL="$cfg"
+  trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+}
+
+# Si el instalador corre como root sobre una carpeta de otro usuario, los
+# archivos del codigo que git reescribe quedarian a nombre de root. Se los
+# devuelve al dueño de la carpeta, para que todo quede como estaba. Solo se
+# tocan los archivos del repositorio y la carpeta .git: nada mas.
+devolver_dueno() {
+  [ "$(id -u)" = "0" ] || return 0
+  [ -n "$DUENO_CARPETA" ] && [ "$DUENO_CARPETA" != "0:0" ] || return 0
+  chown -R "$DUENO_CARPETA" .git 2>>"$LOG_FILE"
+  git ls-files -z | xargs -0 -r chown -h "$DUENO_CARPETA" -- 2>>"$LOG_FILE"
+  git ls-files | sed -n 's|/[^/]*$||p' | sort -u | while IFS= read -r d; do
+    chown "$DUENO_CARPETA" "$d" 2>>"$LOG_FILE"
+  done
+  return 0
 }
 
 do_update() {
@@ -425,6 +461,7 @@ do_update() {
     say "    Red Hat / Rocky:   sudo dnf install git"
     return 1
   fi
+  preparar_git
   if [ ! -f .env ]; then
     fail "Esta carpeta no tiene .env: no es una instalacion en uso."
     say "  Para instalar por primera vez, usa la opcion 1."
@@ -475,18 +512,26 @@ do_update() {
     read -r url
     url=${url:-$REPO_URL_DEFECTO}
     if ! run_logged git init -q; then
-      fail "No se pudo preparar la carpeta. Detalle en $LOG_FILE"
+      fail "No se pudo preparar la carpeta. Detalle en $LOG_FILE. No se toco nada."
       return 1
     fi
     GIT_CREADO_ACA=1
-    git symbolic-ref HEAD "refs/heads/$RAMA_ACTUALIZACION"
-    run_logged git remote add origin "$url"
+    if ! run_logged git symbolic-ref HEAD "refs/heads/$RAMA_ACTUALIZACION" \
+       || ! run_logged git remote add origin "$url"; then
+      fail "No se pudo preparar git en esta carpeta. Detalle en $LOG_FILE"
+      say "  Se deshizo lo que se habia empezado: no se toco nada."
+      deshacer_git_creado
+      return 1
+    fi
   fi
 
   say "  Consultando $url ..."
-  if ! git fetch -q origin "+refs/heads/$RAMA_ACTUALIZACION:refs/remotes/origin/$RAMA_ACTUALIZACION" >>"$LOG_FILE" 2>&1; then
-    fail "No se pudo descargar la version nueva. ¿Hay internet en esta maquina?"
-    say "  Detalle en $LOG_FILE. No se toco nada."
+  if ! salida=$(git fetch -q origin "+refs/heads/$RAMA_ACTUALIZACION:refs/remotes/origin/$RAMA_ACTUALIZACION" 2>&1); then
+    printf '%s\n' "$salida" >> "$LOG_FILE"
+    fail "No se pudo descargar la version nueva desde $url"
+    say "  Motivo que informa git:"
+    printf '%s\n' "$salida" | tail -n 3 | while IFS= read -r l; do say "    $l"; done
+    say "  No se toco nada."
     deshacer_git_creado
     return 1
   fi
@@ -602,9 +647,14 @@ EOF
   fi
   run_logged git branch -q --set-upstream-to="origin/$RAMA_ACTUALIZACION" "$RAMA_ACTUALIZACION" || true
   GIT_CREADO_ACA=0
+  devolver_dueno
   ok "Codigo actualizado a $(git log -1 --format='%h' HEAD)."
 
-  # El resto lo hace la version NUEVA del instalador.
+  # El resto lo hace la version NUEVA del instalador. Al relanzarse no corre la
+  # limpieza de salida, asi que el archivo temporal de git se borra aca (el
+  # instalador nuevo prepara el suyo).
+  rm -f "${GIT_CONFIG_GLOBAL:-}"
+  unset GIT_CONFIG_GLOBAL
   exec bash ./install.sh --continuar-actualizacion "$dir" "${MODO_ACTUALIZACION:-menu}"
 }
 
@@ -635,11 +685,15 @@ volver_codigo() {
   local anterior="$1"
   [ -n "$anterior" ] || return 1
   run_logged git reset -q --hard "$anterior"
+  local r=$?
+  devolver_dueno
+  return $r
 }
 
 # Segunda mitad de la actualizacion, ejecutada ya con el instalador nuevo.
 continuar_actualizacion() {
   local dir="$1" anterior
+  preparar_git
   anterior=$(cat "$dir/version-anterior.txt" 2>/dev/null)
   title "Actualizar desde GitHub (instalando la version nueva)"
   if [ -z "$anterior" ] || [ ! -f "$dir/codigo-anterior.tar.gz" ]; then

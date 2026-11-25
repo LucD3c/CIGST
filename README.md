@@ -296,8 +296,9 @@ en otra descargada como ZIP: las 30 tablas previas quedaron **idénticas** (fila
 y huella md5 de cada una), el adjunto intacto byte a byte y el `.env` sin
 cambios. También se probaron una versión que no compila (vuelve atrás sin
 cortar el servicio), una migración que falla (vuelve a la versión anterior con
-la base idéntica), un archivo editado a mano y el freno al instalar desde otra
-carpeta: 51 de 51 controles.
+la base idéntica), un archivo editado a mano, una carpeta que pertenece a otro
+usuario con el instalador ejecutado como root (como en un servidor real) y el
+freno al instalar desde otra carpeta: 75 de 75 controles.
 
 </details>
 
