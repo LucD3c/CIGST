@@ -192,8 +192,18 @@ El código y los datos viven en lugares distintos:
 
 `docker compose up -d --build` (lo que hace la opción 1) recrea contenedores,
 pero **nunca toca los volúmenes**. Lo único que los borra es
-`docker compose down -v`, que es exactamente lo que hace la opción 8
+`docker compose down -v`, que es exactamente lo que hace la opción 10
 (Resetear) — y por eso exige escribir `BORRAR` para confirmar.
+
+> **Los volúmenes llevan el nombre de la carpeta.** Docker Compose agrupa
+> todo bajo un "proyecto" que se llama como la carpeta: la carpeta `CIGST`
+> usa los volúmenes `cigst_cigst_pgdata` y `cigst_cigst_uploads`. Si la
+> versión nueva se descarga en **otra** carpeta (por ejemplo `CIGST-main`) y
+> se instala ahí, Docker crea volúmenes nuevos y la plataforma arranca
+> **vacía**. Los datos no se borran, siguen en los volúmenes de la carpeta
+> vieja, pero no se ven. Por eso se actualiza **siempre desde la misma
+> carpeta** con la opción 11, y el instalador frena si alguien intenta
+> instalar desde una carpeta nueva habiendo datos de otra en la máquina.
 
 Las migraciones de base de datos se aplican de forma incremental
 (`prisma migrate deploy`): Prisma lleva registro de cuáles ya se corrieron y
@@ -217,15 +227,95 @@ Esto importa en producción: si un Administrador borra una categoría o un
 sector de ejemplo, tiene que quedar borrado, no reaparecer en el próximo
 reinicio.
 
+### Actualizar desde GitHub (opción 11, Nuevo)
+
+> 🆕 **Nuevo en esta versión — en pocas palabras**
+>
+> - **Qué hace:** trae la versión nueva desde GitHub y la instala, sin volver
+>   a descargar el repositorio y sin tocar los datos.
+> - **Cómo se usa:** en la carpeta de siempre, `./install.sh` → opción
+>   **11**, o directo `./install.sh --actualizar`. Muestra qué trae y pide
+>   escribir `ACTUALIZAR`.
+> - **Cómo está hecho:** usa `git` para bajar solo lo que cambió, construye
+>   la imagen nueva con la plataforma andando y copia la base justo antes de
+>   cambiar de versión. Si algo falla, vuelve sola a la versión anterior.
+
+**Requisitos:** `git` instalado (`sudo apt install git`), la plataforma
+encendida (la copia de la base la necesita), al menos 1 GB libre e internet
+hacia GitHub. Ejecutar siempre **con el mismo usuario** de siempre: si la
+carpeta es de otro usuario, git se niega a leerla y el instalador explica cómo
+autorizarla.
+
+Qué hace, en orden, y qué pasa si algo falla en cada paso:
+
+| Paso | Qué hace | Si falla |
+| --- | --- | --- |
+| 1 | Consulta GitHub y muestra la versión instalada, la nueva y la lista de cambios | No se tocó nada |
+| 2 | Si hay archivos del código **editados a mano** en el servidor, los lista | — |
+| 3 | Pide escribir `ACTUALIZAR` | Cancelar no toca nada |
+| 4 | Guarda el código actual en `backups/…_antes-de-actualizar/codigo-anterior.tar.gz` (sin datos ni `.env`) y anota la versión anterior | No se tocó nada |
+| 5 | Pasa el código a la versión nueva y relanza el instalador **nuevo** | Vuelve al código anterior |
+| 6 | Construye la imagen nueva. **La plataforma sigue funcionando** | Vuelve al código anterior. No hubo corte |
+| 7 | Detiene la aplicación y copia la base (`base-de-datos.sql`). Con la aplicación detenida nadie escribe: la copia es exactamente el estado previo. Comprueba que el volcado esté completo | Vuelve al código anterior y vuelve a encender la aplicación |
+| 8 | Arranca la versión nueva: aplica sus migraciones y espera el chequeo de salud. Es el único corte, de alrededor de un minuto | Ofrece volver atrás (Enter = sí): devuelve la base a la copia del paso 7, vuelve al código anterior y lo reconstruye |
+
+Lo que **no toca nunca**: los adjuntos (viven en su propio volumen; por eso
+no se copian en cada actualización), el `.env` (solo se le agrega una clave
+si a una versión nueva le falta), las copias de seguridad y cualquier archivo
+propio que la empresa haya dejado en la carpeta (un certificado, una
+configuración, copias `.env.anterior-*`). Git solo maneja los archivos que son
+parte del repositorio.
+
+Si un archivo del código fue **editado a mano** en el servidor, se reemplaza
+por el de GitHub, y la versión editada queda dentro de
+`codigo-anterior.tar.gz`.
+
+**Carpeta descargada como ZIP.** La primera vez, la opción 11 pregunta la
+dirección del repositorio (Enter = la de siempre) y vincula la carpeta a
+GitHub. Antes registra el código actual como una versión local, para poder
+volver a él. Se hace una sola vez; si se cancela, la carpeta queda como
+estaba.
+
+**La primera vez en un servidor con un instalador viejo** (que no tiene la
+opción 11): se baja solo el instalador nuevo, dentro de la misma carpeta, y se
+usa la opción 11. No hace falta hacer `git pull` antes: la opción 11 se ocupa.
+
+```bash
+cd /ruta/de/la/carpeta/de/siempre
+curl -fsSL https://raw.githubusercontent.com/LucD3c/CIGST/main/install.sh -o install.sh.nuevo \
+  && mv install.sh.nuevo install.sh && chmod +x install.sh
+./install.sh        # opción 11
+```
+
+Si `git pull` se hace a mano antes, la opción 11 dice que ya está al día y
+no instala nada: en ese caso alcanza con la opción 1.
+
+**Cómo se verificó**, en un Docker aislado (sin tocar ninguna instalación
+real), con una versión anterior instalada y con datos:
+
+- Carpeta clonada con git y carpeta descargada como ZIP: las dos se
+  actualizaron con las tablas previas **idénticas** (cantidad de filas y
+  huella md5 de cada tabla), el adjunto intacto byte a byte y el `.env` sin
+  cambios.
+- Versión nueva que no compila: vuelve al código anterior y la plataforma
+  **nunca se detuvo** (el mismo contenedor siguió funcionando).
+- Versión nueva con una migración que falla: vuelve a la versión anterior con
+  la base idéntica y sin rastro de la migración fallida.
+- Archivo editado a mano: se reemplaza y la versión editada queda en la copia.
+  Un archivo propio de la empresa en la carpeta sigue intacto.
+- Segunda ejecución: dice que ya está al día y no toca nada.
+- Instalar desde otra carpeta habiendo datos: frena y no crea nada.
+
 ### Procedimiento recomendado
 
-1. Opción **6** → copia de seguridad (base + adjuntos + `.env`).
-2. Copiar esa carpeta `backups/...` fuera de la máquina.
-3. `git pull` (o reemplazar los archivos del ZIP nuevo, **menos** el `.env`).
-4. Opción **1** → reconstruye, migra y levanta.
-5. Opción **2** → confirmar que los 3 servicios están en verde.
+1. Opción **11** → actualiza con copia previa de la base y vuelta atrás
+   automática.
+2. Opción **2** → confirmar que los 3 servicios están en verde.
+3. Cada tanto, opción **6** → copia completa (base + adjuntos + `.env`
+   cifrado), guardada **fuera** de la máquina.
 
-Si algo saliera mal, la opción **7** restaura la copia del paso 1.
+Si algo saliera mal después, la opción **7** restaura cualquier copia,
+incluida la que la opción 11 deja en `backups/…_antes-de-actualizar/`.
 
 ### Cómo funcionan las copias de seguridad (opciones 6, 7 y 8)
 

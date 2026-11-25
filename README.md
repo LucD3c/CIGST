@@ -213,7 +213,7 @@ unidad. El detalle completo está en [Seguridad](docs/seguridad.md).
 El mismo menú sirve después para el día a día:
 
 ```
-   1) Instalar / iniciar / actualizar la plataforma
+   1) Instalar / iniciar la plataforma
    2) Ver estado de los servicios
    3) Ver logs en vivo
    4) Reiniciar servicios
@@ -223,7 +223,8 @@ El mismo menú sirve después para el día a día:
    8) Programar copias automaticas
    9) Liberar espacio (borra solo datos SIN USO)
   10) Resetear todo (BORRA los datos)
-  11) Salir
+  11) Actualizar desde GitHub (sin tocar los datos)
+  12) Salir
 ```
 
 > [!NOTE]
@@ -242,17 +243,36 @@ El mismo menú sirve después para el día a día:
 > no la información. Tickets, personas, equipos, sectores, usuarios, chats,
 > notificaciones y archivos adjuntos siguen exactamente donde estaban.
 
-Para actualizar a una versión nueva:
+> 🆕 **Nuevo: actualizar es una sola opción del menú.** No hace falta volver a
+> descargar el repositorio.
 
-1. **(Recomendado)** Opción **6** del menú → copia de seguridad. Queda en
-   `backups/AAAA-MM-DD_HH-MM/` con la base completa, los adjuntos y una
-   copia del `.env`. Guardala fuera de esa máquina.
-2. Traer el código nuevo: `git pull` (o descargar el ZIP nuevo y reemplazar
-   los archivos — **menos** tu `.env`, que es tuyo y nunca viene en el ZIP).
-3. Opción **1** del menú. Reconstruye la aplicación, aplica las migraciones
-   de base de datos que falten sobre los datos existentes, y la deja andando.
+En la carpeta de siempre: `./install.sh` → opción **11) Actualizar desde
+GitHub** (o directo: `./install.sh --actualizar`). Muestra qué trae la
+versión nueva, pide escribir `ACTUALIZAR` y hace todo sola:
 
-Lo único que borra datos es la opción **8 (Resetear)**, que además exige
+1. Descarga **solo lo que cambió** y construye la versión nueva **mientras la
+   plataforma sigue funcionando**.
+2. La detiene un momento, **copia la base de datos** y arranca la versión
+   nueva: alrededor de un minuto sin servicio.
+3. Si la versión nueva no arranca, **vuelve sola a la anterior**, con la base
+   exactamente como estaba.
+
+No toca los datos, los adjuntos, el `.env`, las copias ni ningún archivo
+propio que haya en la carpeta. La copia previa queda en
+`backups/AAAA-MM-DD_HH-MM-SS_antes-de-actualizar/`.
+
+> [!WARNING]
+> **No descargues la versión nueva en otra carpeta.** Docker guarda los datos
+> según el nombre de la carpeta: instalar desde una carpeta nueva arranca una
+> plataforma **vacía** (los datos no se borran, pero no se ven). El instalador
+> avisa y frena si lo detecta.
+
+**La primera vez**, si el servidor tiene un instalador anterior a esta opción,
+alcanza con bajar el instalador nuevo dentro de la misma carpeta y usar la
+opción 11 ([detalle](docs/instaladores.md#actualizar-desde-github-opción-11-nuevo)).
+Si la carpeta vino de un ZIP, la opción 11 la vincula a GitHub una sola vez.
+
+Lo único que borra datos es la opción **10 (Resetear)**, que además exige
 escribir `BORRAR` para confirmar.
 
 <details>
@@ -269,6 +289,15 @@ listas para usar.
 También se probó el ciclo completo de respaldo: copia → borrado total de la
 plataforma → restauración → los datos volvieron completos y la plataforma
 siguió funcionando.
+
+🆕 La opción **11) Actualizar desde GitHub** se probó en un Docker aislado,
+partiendo de una versión anterior con datos, en una carpeta clonada con git y
+en otra descargada como ZIP: las 30 tablas previas quedaron **idénticas** (filas
+y huella md5 de cada una), el adjunto intacto byte a byte y el `.env` sin
+cambios. También se probaron una versión que no compila (vuelve atrás sin
+cortar el servicio), una migración que falla (vuelve a la versión anterior con
+la base idéntica), un archivo editado a mano y el freno al instalar desde otra
+carpeta: 51 de 51 controles.
 
 </details>
 

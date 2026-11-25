@@ -180,10 +180,49 @@ ensure_env_vars() {
   ok "Se genero la clave de cifrado del correo y se guardo en .env."
 }
 
+# Nombre con el que Docker Compose agrupa esta instalacion. Sale del nombre de
+# la carpeta (en minusculas, solo letras, numeros, - y _), y de ese nombre
+# salen los volumenes con los datos: <proyecto>_cigst_pgdata.
+proyecto_compose() {
+  basename "$(pwd -P)" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-'
+}
+
+# Otras instalaciones de CIGST en esta maquina (en otras carpetas), detectadas
+# por sus volumenes de base de datos.
+otras_instalaciones() {
+  local propio
+  propio=$(proyecto_compose)
+  docker volume ls --format '{{.Name}}' 2>/dev/null | sed -n 's/_cigst_pgdata$//p' | grep -vx "$propio" || true
+}
+
 setup_env() {
   if [ -f .env ]; then
     ok "Ya existe un archivo .env: se respeta la configuracion actual."
     return 0
+  fi
+  # Freno contra el error mas facil de cometer al actualizar: descargar la
+  # version nueva en OTRA carpeta e instalar ahi. Docker separa los datos por
+  # carpeta, asi que eso arranca una plataforma nueva y vacia (los datos de la
+  # anterior no se borran, pero dejan de verse).
+  local otras
+  otras=$(otras_instalaciones)
+  if [ -n "$otras" ]; then
+    title "Atencion: ya hay una instalacion de CIGST en esta maquina"
+    warn "Hay datos de CIGST que pertenecen a otra carpeta:"
+    printf '%s\n' "$otras" | while read -r o; do say "      $o   (volumen ${o}_cigst_pgdata)"; done
+    say ""
+    say "  Si queres ACTUALIZAR la plataforma, no instales desde una carpeta nueva:"
+    say "  entra a la carpeta de siempre, ejecuta ./install.sh y elegi la opcion 11."
+    say ""
+    say "  Instalar desde esta carpeta crea una plataforma NUEVA y VACIA. Los datos"
+    say "  de la otra no se borran, pero no se ven desde esta."
+    printf '  Para crear igual una instalacion nueva escribi NUEVA (Enter = cancelar): '
+    local r
+    read -r r
+    if [ "$r" != "NUEVA" ]; then
+      say "  Cancelado: no se creo nada."
+      return 1
+    fi
   fi
   title "Configuracion inicial (.env)"
   say "No existe .env todavia: se crea a partir de .env.example."
@@ -281,38 +320,18 @@ diagnose_failure() {
   if [ "$(migrate_result)" = "fail" ]; then
     say "  • Las migraciones de la base fallaron (posible contraseña de Postgres"
     say "    cambiada despues del primer arranque: la base guarda la original)."
-    say "    Si es una instalacion nueva sin datos, la opcion 6 (reset) lo arregla."
+    say "    Si es una instalacion nueva sin datos, la opcion 10 (resetear) lo arregla."
   fi
   say "  • El detalle tecnico completo quedo en: $LOG_FILE"
 }
 
-do_install() {
-  setup_env
-  ensure_env_vars
-  title "Instalando / iniciando la plataforma"
-  say "  (la primera vez descarga y construye las imagenes: puede tardar varios minutos)"
-  say "  Paso 1/3: construyendo e iniciando contenedores..."
-  if ! run_logged docker compose up -d --build; then
-    diagnose_failure
-    return 1
-  fi
-  say "  Paso 2/3: aplicando migraciones y datos iniciales..."
-  say "  Paso 3/3: esperando a que la aplicacion pase su chequeo de salud..."
+# Espera a que la aplicacion pase su chequeo de salud. 0 = funcionando.
+esperar_salud() {
   local waited=0 app
   while [ $waited -lt $HEALTH_TIMEOUT_S ]; do
     app=$(service_health app)
     if [ "$app" = "healthy" ]; then
-      local port user
-      port=$(grep -E '^APP_PORT=' .env | cut -d= -f2)
-      user=$(grep -E '^SEED_ADMIN_USERNAME=' .env | cut -d= -f2)
-      say ""
-      ok "¡Plataforma instalada y funcionando!"
-      say ""
-      say "  ➜ Entra desde cualquier equipo de la red interna a:"
-      say "      http://localhost:${port:-3000}   (o http://IP-DE-ESTA-MAQUINA:${port:-3000})"
-      say "  ➜ Usuario administrador: ${user:-admin}"
-      say "  ➜ La contraseña es la que elegiste (o la generada) y esta en el"
-      say "    archivo .env — guardalo en un lugar seguro y no lo compartas."
+      printf '\n'
       return 0
     fi
     if [ "$app" = "exited" ] || [ "$(migrate_result)" = "fail" ]; then
@@ -323,7 +342,375 @@ do_install() {
     waited=$((waited+3))
   done
   printf '\n'
+  return 1
+}
+
+do_install() {
+  setup_env || return 1
+  ensure_env_vars
+  title "Instalando / iniciando la plataforma"
+  say "  (la primera vez descarga y construye las imagenes: puede tardar varios minutos)"
+  say "  Paso 1/3: construyendo e iniciando contenedores..."
+  if ! run_logged docker compose up -d --build; then
+    diagnose_failure
+    return 1
+  fi
+  say "  Paso 2/3: aplicando migraciones y datos iniciales..."
+  say "  Paso 3/3: esperando a que la aplicacion pase su chequeo de salud..."
+  if esperar_salud; then
+    local port user
+    port=$(grep -E '^APP_PORT=' .env | cut -d= -f2)
+    user=$(grep -E '^SEED_ADMIN_USERNAME=' .env | cut -d= -f2)
+    say ""
+    ok "¡Plataforma instalada y funcionando!"
+    say ""
+    say "  ➜ Entra desde cualquier equipo de la red interna a:"
+    say "      http://localhost:${port:-3000}   (o http://IP-DE-ESTA-MAQUINA:${port:-3000})"
+    say "  ➜ Usuario administrador: ${user:-admin}"
+    say "  ➜ La contraseña es la que elegiste (o la generada) y esta en el"
+    say "    archivo .env — guardalo en un lugar seguro y no lo compartas."
+    return 0
+  fi
   diagnose_failure
+  return 1
+}
+
+# --- Actualizar desde GitHub --------------------------------------------------
+#
+# Trae la version nueva SIN tocar los datos. El orden esta pensado para que
+# cualquier falla deje la plataforma como estaba:
+#
+#   1. Se descarga el codigo nuevo y se construye la imagen MIENTRAS la
+#      plataforma sigue funcionando con la version anterior. Si la
+#      construccion falla, se vuelve al codigo anterior y no se corto nada.
+#   2. Recien ahi se detiene la aplicacion y se copia la base de datos. Con la
+#      aplicacion detenida nadie escribe, asi que la copia es exactamente el
+#      estado anterior a la actualizacion.
+#   3. Arranca la version nueva (aplica sus migraciones). Si no arranca, se
+#      ofrece volver a la version anterior con la base tal cual estaba.
+#
+# Nunca se toca: el .env (salvo agregar una clave que falte), los adjuntos,
+# las copias de seguridad ni ningun archivo que no sea parte del codigo.
+#
+# Si la carpeta vino de un ZIP (sin .git), se vincula a GitHub una sola vez.
+# Antes se guarda el codigo actual como una version local, para poder volver.
+#
+# Mientras corre, git reemplaza este mismo archivo. No hay problema: bash
+# sigue leyendo el archivo que abrio, y para el resto se relanza la version
+# nueva del instalador (exec), que continua desde el paso 1.
+
+REPO_URL_DEFECTO="https://github.com/LucD3c/CIGST.git"
+RAMA_ACTUALIZACION="main"
+GIT_CREADO_ACA=0
+
+# Si la vinculacion con GitHub se cancela o falla a mitad de camino, se borra
+# la carpeta .git que se acababa de crear: la carpeta queda como estaba.
+deshacer_git_creado() {
+  if [ "$GIT_CREADO_ACA" = "1" ] && [ -d .git ]; then
+    rm -rf ./.git
+    GIT_CREADO_ACA=0
+  fi
+}
+
+do_update() {
+  title "Actualizar desde GitHub"
+  say "  Trae la version nueva de la plataforma y la instala SIN tocar los datos:"
+  say "  la base, los adjuntos, el .env y las copias quedan donde estan."
+  say ""
+
+  if ! command -v git >/dev/null 2>&1; then
+    fail "Falta el programa git en esta maquina (es el que descarga la version nueva)."
+    say "  Instalalo y volve a esta opcion:"
+    say "    Debian / Ubuntu:   sudo apt install git"
+    say "    Red Hat / Rocky:   sudo dnf install git"
+    return 1
+  fi
+  if [ ! -f .env ]; then
+    fail "Esta carpeta no tiene .env: no es una instalacion en uso."
+    say "  Para instalar por primera vez, usa la opcion 1."
+    return 1
+  fi
+  if [ "$(service_health db)" != "healthy" ]; then
+    fail "La base de datos no esta funcionando, y sin ella no se puede hacer la copia previa."
+    say "  Encendé la plataforma con la opcion 1 y despues volve a esta opcion."
+    return 1
+  fi
+  local libre_mb
+  libre_mb=$(df -Pm . 2>/dev/null | awk 'NR==2{print $4}')
+  if [ -n "$libre_mb" ] && [ "$libre_mb" -lt 1024 ] 2>/dev/null; then
+    fail "Quedan ${libre_mb} MB libres en este disco: hace falta al menos 1 GB para la copia."
+    say "  La opcion 9 libera espacio sin tocar nada importante."
+    return 1
+  fi
+
+  local es_zip=0 url salida rama
+  if [ -e .git ]; then
+    if ! salida=$(git rev-parse --git-dir 2>&1); then
+      fail "git no puede leer esta carpeta."
+      if printf '%s' "$salida" | grep -qi "dubious ownership"; then
+        say "  La carpeta pertenece a otro usuario del sistema. Ejecuta el instalador con"
+        say "  el mismo usuario de siempre, o autoriza la carpeta con:"
+        say "    git config --global --add safe.directory $(pwd -P)"
+      else
+        say "  Detalle: $salida"
+      fi
+      return 1
+    fi
+    url=$(git remote get-url origin 2>/dev/null)
+    if [ -z "$url" ]; then
+      fail "Esta carpeta no tiene configurado de donde actualizarse (falta 'origin')."
+      return 1
+    fi
+    rama=$(git symbolic-ref --short -q HEAD)
+    if [ "$rama" != "$RAMA_ACTUALIZACION" ]; then
+      fail "La carpeta esta en la rama '${rama:-ninguna}' y no en '$RAMA_ACTUALIZACION'."
+      say "  No se actualiza automaticamente para no mezclar versiones."
+      return 1
+    fi
+  else
+    es_zip=1
+    say "  Esta carpeta se descargo como ZIP: todavia no esta vinculada a GitHub."
+    say "  Se vincula UNA sola vez; desde ahi, cada actualizacion es esta misma opcion."
+    printf '  Direccion del repositorio [Enter = %s]: ' "$REPO_URL_DEFECTO"
+    read -r url
+    url=${url:-$REPO_URL_DEFECTO}
+    if ! run_logged git init -q; then
+      fail "No se pudo preparar la carpeta. Detalle en $LOG_FILE"
+      return 1
+    fi
+    GIT_CREADO_ACA=1
+    git symbolic-ref HEAD "refs/heads/$RAMA_ACTUALIZACION"
+    run_logged git remote add origin "$url"
+  fi
+
+  say "  Consultando $url ..."
+  if ! git fetch -q origin "+refs/heads/$RAMA_ACTUALIZACION:refs/remotes/origin/$RAMA_ACTUALIZACION" >>"$LOG_FILE" 2>&1; then
+    fail "No se pudo descargar la version nueva. ¿Hay internet en esta maquina?"
+    say "  Detalle en $LOG_FILE. No se toco nada."
+    deshacer_git_creado
+    return 1
+  fi
+  local objetivo actual="" tocados=""
+  objetivo=$(git rev-parse "refs/remotes/origin/$RAMA_ACTUALIZACION")
+
+  if [ $es_zip -eq 0 ]; then
+    actual=$(git rev-parse HEAD)
+    if ! git merge-base --is-ancestor HEAD "$objetivo" 2>/dev/null; then
+      fail "Esta carpeta tiene cambios guardados en git que no estan en GitHub."
+      say "  No se actualiza automaticamente para no perderlos."
+      say "  Para verlos: git log --oneline origin/$RAMA_ACTUALIZACION..HEAD"
+      return 1
+    fi
+    # Archivos del codigo modificados a mano en este servidor. Los que ya son
+    # iguales a la version nueva (por ejemplo este instalador, si se bajo
+    # suelto) no cuentan como cambio.
+    local f
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      git diff --quiet "$objetivo" -- "$f" 2>/dev/null && continue
+      tocados="${tocados}${f}
+"
+    done <<EOF
+$(git diff --name-only HEAD)
+EOF
+    if [ "$actual" = "$objetivo" ] && [ -z "$tocados" ]; then
+      ok "Ya tenes la ultima version: $(git log -1 --format='%h  %cd  %s' --date=short HEAD)"
+      return 0
+    fi
+  fi
+
+  say ""
+  if [ $es_zip -eq 1 ]; then
+    say "  Version instalada:  descargada como ZIP (sin registro de version)"
+  else
+    say "  Version instalada:  $(git log -1 --format='%h  %cd  %s' --date=short HEAD)"
+  fi
+  say "  Version en GitHub:  $(git log -1 --format='%h  %cd  %s' --date=short "$objetivo")"
+  if [ $es_zip -eq 0 ] && [ "$actual" != "$objetivo" ]; then
+    say "  Lo que trae:"
+    git log --no-merges --format='    - %s' "HEAD..$objetivo" | head -n 25 | tee -a "$LOG_FILE"
+  fi
+  if [ -n "$tocados" ]; then
+    say ""
+    warn "Estos archivos del codigo fueron modificados a mano en este servidor:"
+    printf '%s' "$tocados" | while IFS= read -r f; do say "      $f"; done
+    say "  Se guardan en la copia y se reemplazan por la version de GitHub."
+  fi
+  say ""
+  say "  Como se hace:"
+  say "    1. Se construye la version nueva. La plataforma SIGUE funcionando."
+  say "    2. Se detiene un momento, se copia la base de datos y arranca la version"
+  say "       nueva: alrededor de un minuto sin servicio."
+  say "    3. Si la version nueva no arranca, se puede volver a la anterior con la"
+  say "       base exactamente como estaba."
+  say "  No se toca: los datos (solo se agrega lo que la version nueva necesite),"
+  say "  los adjuntos, el .env ni las copias de seguridad."
+  printf '  Para continuar escribi ACTUALIZAR (Enter = cancelar): '
+  local conf
+  read -r conf
+  if [ "$conf" != "ACTUALIZAR" ]; then
+    say "  Cancelado: no se toco nada."
+    deshacer_git_creado
+    return 0
+  fi
+
+  local dir
+  dir="backups/$(date '+%Y-%m-%d_%H-%M-%S')_antes-de-actualizar"
+  if ! mkdir -p "$dir"; then
+    fail "No se pudo crear la carpeta de la copia ($dir)."
+    deshacer_git_creado
+    return 1
+  fi
+
+  # Copia del codigo tal como esta (sin datos, sin .env y sin las copias).
+  say "  Guardando una copia del codigo actual..."
+  if ! tar czf "$dir/codigo-anterior.tar.gz" --exclude=./backups --exclude=./.git \
+       --exclude=./.env --exclude='./.env.anterior-*' --exclude=./.env.restaurado \
+       --exclude=./node_modules --exclude=./backend/node_modules --exclude=./install.log \
+       . 2>>"$LOG_FILE"; then
+    fail "No se pudo guardar la copia del codigo. Detalle en $LOG_FILE. No se toco nada."
+    deshacer_git_creado
+    return 1
+  fi
+
+  # Si vino de un ZIP, el codigo actual se guarda como una version local: es
+  # el punto exacto al que se vuelve si la version nueva no arranca.
+  #
+  # Se registran SOLO los archivos que tambien son parte del repositorio. Lo
+  # que la empresa haya agregado en esta carpeta (un certificado, una
+  # configuracion propia, copias del .env) queda fuera de git, y por eso git
+  # nunca lo reemplaza ni lo borra: ni al actualizar ni al volver atras.
+  if [ $es_zip -eq 1 ]; then
+    if ! { git ls-tree -r -z --name-only "$objetivo" \
+             | while IFS= read -r -d '' f; do [ -e "$f" ] && printf '%s\0' "$f"; done \
+             | xargs -0 -r git add -f -- >>"$LOG_FILE" 2>&1 && \
+           git -c user.name="Instalador CIGST" -c user.email="instalador@cigst.local" \
+               commit -q -m "Version instalada antes de vincular con GitHub" >>"$LOG_FILE" 2>&1; }; then
+      fail "No se pudo registrar la version actual. Detalle en $LOG_FILE. No se toco nada."
+      deshacer_git_creado
+      return 1
+    fi
+    actual=$(git rev-parse HEAD)
+  fi
+  printf '%s\n' "$actual" > "$dir/version-anterior.txt"
+
+  say "  Descargando la version nueva..."
+  if ! run_logged git reset -q --hard "$objetivo"; then
+    fail "No se pudo aplicar la version nueva. Detalle en $LOG_FILE"
+    run_logged git reset -q --hard "$actual"
+    return 1
+  fi
+  run_logged git branch -q --set-upstream-to="origin/$RAMA_ACTUALIZACION" "$RAMA_ACTUALIZACION" || true
+  GIT_CREADO_ACA=0
+  ok "Codigo actualizado a $(git log -1 --format='%h' HEAD)."
+
+  # El resto lo hace la version NUEVA del instalador.
+  exec bash ./install.sh --continuar-actualizacion "$dir" "${MODO_ACTUALIZACION:-menu}"
+}
+
+# Copia la base con la aplicacion detenida. Comprueba que el volcado este
+# completo: una copia cortada no sirve para volver atras.
+copiar_base() {
+  local destino="$1" user db
+  user=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2); user=${user:-cigst}
+  db=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2); db=${db:-cigst}
+  docker compose exec -T db pg_dump -U "$user" -d "$db" > "$destino" 2>>"$LOG_FILE" || return 1
+  tail -n 5 "$destino" | grep -q "PostgreSQL database dump complete"
+}
+
+# Vuelve la base al volcado indicado (se usa solo para deshacer una
+# actualizacion, con la aplicacion detenida).
+restaurar_base() {
+  local origen="$1" user db
+  user=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2); user=${user:-cigst}
+  db=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2); db=${db:-cigst}
+  docker compose exec -T db psql -U "$user" -d postgres -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$db' AND pid <> pg_backend_pid();" >>"$LOG_FILE" 2>&1
+  docker compose exec -T db psql -U "$user" -d postgres -c "DROP DATABASE IF EXISTS \"$db\";" >>"$LOG_FILE" 2>&1 || return 1
+  docker compose exec -T db psql -U "$user" -d postgres -c "CREATE DATABASE \"$db\" OWNER \"$user\";" >>"$LOG_FILE" 2>&1 || return 1
+  docker compose exec -T db psql -v ON_ERROR_STOP=1 -U "$user" -d "$db" < "$origen" >>"$LOG_FILE" 2>&1
+}
+
+volver_codigo() {
+  local anterior="$1"
+  [ -n "$anterior" ] || return 1
+  run_logged git reset -q --hard "$anterior"
+}
+
+# Segunda mitad de la actualizacion, ejecutada ya con el instalador nuevo.
+continuar_actualizacion() {
+  local dir="$1" anterior
+  anterior=$(cat "$dir/version-anterior.txt" 2>/dev/null)
+  title "Actualizar desde GitHub (instalando la version nueva)"
+  if [ -z "$anterior" ] || [ ! -f "$dir/codigo-anterior.tar.gz" ]; then
+    fail "Falta la informacion de la version anterior en $dir."
+    return 1
+  fi
+  ensure_env_vars
+
+  say "  Paso 1/3: construyendo la version nueva (la plataforma sigue funcionando)..."
+  if ! run_logged docker compose build; then
+    fail "No se pudo construir la version nueva. Detalle en $LOG_FILE"
+    volver_codigo "$anterior"
+    ok "Se volvio al codigo anterior. La plataforma siguio funcionando: no hubo corte."
+    return 1
+  fi
+
+  say "  Paso 2/3: deteniendo la plataforma y copiando la base de datos..."
+  run_logged docker compose stop app
+  if ! copiar_base "$dir/base-de-datos.sql"; then
+    fail "No se pudo copiar la base de datos, asi que NO se instala la version nueva."
+    volver_codigo "$anterior"
+    run_logged docker compose start app
+    ok "Se volvio al codigo anterior y la plataforma se encendio de nuevo, sin cambios."
+    # Las imagenes ya se habian construido con la version nueva: se vuelven a
+    # construir con la anterior para que un reinicio futuro no las mezcle.
+    run_logged docker compose build || true
+    return 1
+  fi
+  ok "Base copiada en $dir/base-de-datos.sql"
+
+  say "  Paso 3/3: arrancando la version nueva..."
+  if run_logged docker compose up -d && esperar_salud; then
+    ok "¡Plataforma actualizada y funcionando!"
+    say "  Version: $(git log -1 --format='%h  %cd  %s' --date=short HEAD)"
+    say "  La copia previa quedo en: $dir"
+    say "  (los adjuntos no se copian: la actualizacion no los toca. Para una copia"
+    say "   completa, opcion 6)."
+    return 0
+  fi
+
+  fail "La version nueva no arranco. Detalle en $LOG_FILE"
+  docker compose logs --no-color --tail 60 migrate app >>"$LOG_FILE" 2>&1
+  say ""
+  say "  Tus datos estan a salvo: la base se copio con la plataforma detenida,"
+  say "  un instante antes de arrancar la version nueva."
+  say "  Se puede volver a la version anterior, con la base exactamente como estaba."
+  printf '  ¿Volver a la version anterior ahora? [S/n]: '
+  local r
+  read -r r
+  case "$r" in
+    n|N|no|NO|No)
+      say "  No se vuelve atras. Para hacerlo despues: opcion 7 con la copia"
+      say "  $dir y el codigo anterior en $dir/codigo-anterior.tar.gz."
+      return 1
+      ;;
+  esac
+
+  say "  Volviendo a la version anterior..."
+  run_logged docker compose stop app
+  if ! restaurar_base "$dir/base-de-datos.sql"; then
+    fail "No se pudo volver la base al estado anterior. Detalle en $LOG_FILE"
+    say "  La copia esta intacta en $dir/base-de-datos.sql: restaurala con la opcion 7."
+    return 1
+  fi
+  ok "Base de datos devuelta al estado anterior."
+  volver_codigo "$anterior"
+  if run_logged docker compose up -d --build && esperar_salud; then
+    ok "La plataforma volvio a la version anterior y esta funcionando."
+  else
+    fail "La version anterior tampoco arranco. Detalle en $LOG_FILE"
+  fi
   return 1
 }
 
@@ -691,7 +1078,7 @@ main_menu() {
     printf '   ╔══════════════════════════════════════════╗\n'
     printf '   ║   CIGST - Centro de Soporte Tecnico      ║\n'
     printf '   ╚══════════════════════════════════════════╝\n'
-    printf '   1) Instalar / iniciar / actualizar la plataforma\n'
+    printf '   1) Instalar / iniciar la plataforma\n'
     printf '   2) Ver estado de los servicios\n'
     printf '   3) Ver logs en vivo\n'
     printf '   4) Reiniciar servicios\n'
@@ -701,8 +1088,9 @@ main_menu() {
     printf '   8) Programar copias automaticas\n'
     printf '   9) Liberar espacio (borra solo datos SIN USO)\n'
     printf '  10) Resetear todo (BORRA los datos)\n'
-    printf '  11) Salir\n'
-    printf '   Elegi una opcion [1-11]: '
+    printf '  11) Actualizar desde GitHub (sin tocar los datos)\n'
+    printf '  12) Salir\n'
+    printf '   Elegi una opcion [1-12]: '
     read -r opt || exit 0
     case "$opt" in
       1) do_install ;;
@@ -715,17 +1103,30 @@ main_menu() {
       8) do_backup_programado ;;
       9) do_limpieza ;;
       10) do_reset ;;
-      11) say "Hasta luego."; exit 0 ;;
-      *) say "  Opcion invalida: elegi un numero del 1 al 11." ;;
+      11) do_update ;;
+      12) say "Hasta luego."; exit 0 ;;
+      *) say "  Opcion invalida: elegi un numero del 1 al 12." ;;
     esac
   done
 }
 
 log "===== install.sh iniciado ====="
 check_docker
-# Modo automatico: lo usa la tarea programada, sin menu ni preguntas.
-if [ "${1:-}" = "--backup-automatico" ]; then
-  do_backup_automatico
-fi
+case "${1:-}" in
+  # Modo automatico: lo usa la tarea programada, sin menu ni preguntas.
+  --backup-automatico) do_backup_automatico ;;
+  # ./install.sh --actualizar  -> la opcion 11 directamente, sin pasar por el menu.
+  --actualizar)
+    MODO_ACTUALIZACION=directo
+    do_update
+    exit $?
+    ;;
+  # Uso interno: la segunda mitad de la actualizacion, ya con este instalador nuevo.
+  --continuar-actualizacion)
+    continuar_actualizacion "${2:-}"
+    resultado=$?
+    [ "${3:-}" = "directo" ] && exit $resultado
+    ;;
+esac
 
 main_menu

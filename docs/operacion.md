@@ -427,9 +427,27 @@ puede durar hasta 2 horas.
 
 ## Actualizar
 
-1. Copia de seguridad (opción 6). Siempre.
-2. `git pull` en la carpeta de la plataforma.
-3. Opción **1) Instalar / iniciar / actualizar**.
+> 🆕 **Nuevo: opción 11) Actualizar desde GitHub.** Se usa siempre desde la
+> **misma carpeta**, sin volver a descargar nada a mano.
+
+1. `./install.sh` → opción **11** (o `./install.sh --actualizar`).
+2. Leer qué trae la versión nueva y escribir `ACTUALIZAR`.
+3. Opción **2** para ver los 3 servicios en verde.
+
+La opción 11 construye la versión nueva con la plataforma funcionando, copia
+la base con la aplicación detenida (alrededor de un minuto de corte) y, si la
+versión nueva no arranca, vuelve a la anterior con la base tal como estaba. El
+paso a paso, qué pasa si falla cada etapa y cómo hacerlo la primera vez en un
+servidor con un instalador viejo está en
+[instaladores.md](instaladores.md#actualizar-desde-github-opción-11-nuevo).
+
+> **Nunca instalar la versión nueva en otra carpeta.** Docker guarda los datos
+> según el nombre de la carpeta: desde una carpeta nueva la plataforma
+> arranca vacía. El instalador avisa y frena si lo detecta.
+
+La copia de la opción 11 queda en `backups/…_antes-de-actualizar/`. Ojo: las
+copias automáticas (opción 8) conservan las 14 carpetas más recientes de
+`backups/` y borran las más viejas, incluidas estas.
 
 El servicio `migrate` aplica los cambios de base que hagan falta y recién
 entonces arranca la plataforma.
